@@ -1,0 +1,119 @@
+#ifndef DEEPX_TENSORFUNC_MATMUL_CBLAS_HPP
+#define DEEPX_TENSORFUNC_MATMUL_CBLAS_HPP
+
+#include <cblas.h> // 如果使用 OpenBLAS
+#include "deepx/tensor.hpp"
+#include "tensorfunc/matmul.hpp"
+#include "tensorfunc/authors.hpp"
+
+namespace deepx::tensorfunc
+{
+  template <>
+  struct matmulDispatcher<cblas, float>
+  {
+    static void matmul(const Tensor<float> &a, const Tensor<float> &b, Tensor<float> &c)
+    {
+      if (!check_matmul_shape(a.shape, b.shape))
+      {
+        throw std::invalid_argument("a.shape could matmul with b.shape");
+      }
+      // 计算batch size (将除最后两维外的所有维度展平)
+      int64_t batch_size = 1;
+      for (int i = 0; i < a.shape.dim() - 2; ++i)
+      {
+        batch_size *= a.shape[i];
+      }
+
+      // 获取矩阵维度
+      int64_t m = a.shape[-2]; // 倒数第二维
+      int64_t k = a.shape[-1]; // 最后一维
+      int64_t n = b.shape[-1]; // B的最后一维
+
+      // 设置每个矩阵的步长
+      int64_t lda = k;
+      int64_t ldb = n;
+      int64_t ldc = n;
+
+      // 计算每个batch的指针偏移
+      std::vector<const float *> a_array(batch_size);
+      std::vector<const float *> b_array(batch_size);
+      std::vector<float *> c_array(batch_size);
+
+      for (int64_t i = 0; i < batch_size; ++i)
+      {
+        a_array[i] = a.data + i * m * k;
+        b_array[i] = b.data + i * k * n;
+        c_array[i] = c.data + i * m * n;
+      }
+
+      for (int64_t i = 0; i < batch_size; ++i)
+      {
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    m, n, k,
+                    1.0f,
+                    a_array[i], lda,
+                    b_array[i], ldb,
+                    0.0f,
+                    c_array[i], ldc);
+      }
+    }
+  };
+
+  template <>
+  struct matmulDispatcher<cblas, double>
+  {
+    static void matmul(const Tensor<double> &a, const Tensor<double> &b, Tensor<double> &c)
+    {
+      if (!check_matmul_shape(a.shape, b.shape))
+      {
+        throw std::invalid_argument("a.shape could matmul with b.shape");
+      }
+      // 计算batch size (将除最后两维外的所有维度展平)
+      int64_t batch_size = 1;
+      for (int i = 0; i < a.shape.dim() - 2; ++i)
+      {
+        batch_size *= a.shape[i];
+      }
+
+      // 获取矩阵维度
+      int64_t m = a.shape[-2]; // 倒数第二维
+      int64_t k = a.shape[-1]; // 最后一维
+      int64_t n = b.shape[-1]; // B的最后一维
+
+      // 设置每个矩阵的步长
+      int64_t lda = k;
+      int64_t ldb = n;
+      int64_t ldc = n;
+
+      // 计算每个batch的指针偏移
+      std::vector<const double *> a_array(batch_size);
+      std::vector<const double *> b_array(batch_size);
+      std::vector<double *> c_array(batch_size);
+
+      for (int64_t i = 0; i < batch_size; ++i)
+      {
+        a_array[i] = a.data + i * m * k;
+        b_array[i] = b.data + i * k * n;
+        c_array[i] = c.data + i * m * n;
+      }
+
+      for (int64_t i = 0; i < batch_size; ++i)
+      {
+        // C = α * op(A) * op(B) + β * C
+        cblas_dgemm(CblasRowMajor, // 存储顺序
+                    CblasNoTrans,  // op(A) = A
+                    CblasNoTrans,  // op(B) = B
+                    m, n, k,       // A[m×k], B[k×n], C[m×n]
+                    1.0,           // α = 1.0
+                    a_array[i],    // A矩阵指针
+                    lda,           // A的leading dimension（行主序时为列数k）
+                    b_array[i],    // B矩阵指针
+                    ldb,           // B的leading dimension（行主序时为列数n）
+                    0.0,           // β = 0.0
+                    c_array[i],    // C矩阵指针
+                    ldc);          // C的leading dimension（行主序时为列数n）
+      }
+    }
+  };
+}
+#endif // DEEPX_TENSORFUNC_MATMUL_CBLAS_HPP
