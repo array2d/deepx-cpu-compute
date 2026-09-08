@@ -13,37 +13,6 @@ namespace deepx::tensorfunc
 {
     using namespace deepx::thread;
 
-    // reshape
-    template <typename T>
-    struct reshapeDispatcher<miaobyte, T>
-    {
-        static void reshape(const Tensor<T> &tensor, const std::vector<int> &shape, Tensor<T> &output)
-        { // 参数改为单个tensor引用
-
-            int new_prod = 1;
-            for (int dim : shape)
-            {
-                new_prod *= dim;
-            }
-
-            if (tensor.shape.size != new_prod)
-            {
-                throw std::invalid_argument("Shape size mismatch");
-            }
-            Shape newshape(shape);
-            if (tensor.data == output.data)
-            {
-                output.shape.shape = newshape.shape;
-                output.shape.strides = newshape.strides;
-            }
-            else
-            {
-                output.shape.shape = newshape.shape;
-                output.shape.strides = newshape.strides;
-                output.copyer(tensor.data, output.data, tensor.shape.size);
-            }
-        }
-    };
     // transpose
     template <typename T>
     struct transposeDispatcher<miaobyte, T>

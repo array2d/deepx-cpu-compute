@@ -9,19 +9,6 @@ namespace deepx::tensorfunc
 {
     using namespace std;
 
-    // reshape
-    template <typename Author, typename T>
-    struct reshapeDispatcher
-    {
-        static void reshape(const Tensor<T> &tensor, const std::vector<int> &new_shape, Tensor<T> &output) = delete;
-    };
-
-    template <typename Author, typename T>
-    void reshape(const Tensor<T> &tensor, const std::vector<int> &new_shape, Tensor<T> &output)
-    {
-        reshapeDispatcher<Author, T>::reshape(tensor, new_shape, output);
-    }
-
     // transpose
     template <typename Author, typename T>
     struct transposeDispatcher

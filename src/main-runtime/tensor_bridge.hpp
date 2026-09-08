@@ -1,6 +1,6 @@
 #pragma once
 // kvspace body ↔ deepx::Tensor<T> 零拷贝桥。
-// 读：kvspaceGet 借用指针 → DecodeHead 取 dims/kindexpr → 原位建 Tensor<T>（借用 data，deleter=nullptr）。
+// 读：kvspaceGet 借用指针 → DecodeHead 取 dims/langtype → 原位建 Tensor<T>（借用 data，deleter=nullptr）。
 // 写：kvspaceWriteNewPlace 要可写 body 偏移指针 → 原位建 Tensor<T> → kernel 直接写 kvspace body。
 
 #include <cstdint>
@@ -16,28 +16,28 @@ namespace deepx::rt {
 
 constexpr uint8_t STORETYPE_ARRAYND = 2;
 
-// kindexpr（如 "[2,3]float32"）剥 [dims] 前缀取基础 dtype 名。
-inline std::string kind_of(const std::string &kindexpr) {
-    if (!kindexpr.empty() && kindexpr[0] == '[') {
-        auto e = kindexpr.find(']');
+// langtype（如 "[2,3]float32"）剥 [dims] 前缀取基础 dtype 名。
+inline std::string kind_of(const std::string &langtype) {
+    if (!langtype.empty() && langtype[0] == '[') {
+        auto e = langtype.find(']');
         if (e != std::string::npos)
-            return kindexpr.substr(e + 1);
+            return langtype.substr(e + 1);
     }
-    return kindexpr;
+    return langtype;
 }
 
-// 把 kindexpr（如 "[2,3]float32"）的 dtype 换成 kind，保留 [dims] 前缀（如 → "[2,3]bool"）。
-inline std::string with_kind(const std::string &kindexpr, const std::string &kind) {
-    if (!kindexpr.empty() && kindexpr[0] == '[') {
-        auto e = kindexpr.find(']');
+// 把 langtype（如 "[2,3]float32"）的 dtype 换成 kind，保留 [dims] 前缀（如 → "[2,3]bool"）。
+inline std::string with_kind(const std::string &langtype, const std::string &kind) {
+    if (!langtype.empty() && langtype[0] == '[') {
+        auto e = langtype.find(']');
         if (e != std::string::npos)
-            return kindexpr.substr(0, e + 1) + kind;
+            return langtype.substr(0, e + 1) + kind;
     }
     return kind;
 }
 
-// 由 dims + dtype 名拼 kindexpr（如 {2,3},"float32" → "[2,3]float32"）；输出形状与输入不同的算子（matmul/reduce/reshape）用。
-inline std::string make_kindexpr(const std::vector<int> &dims, const std::string &kind) {
+// 由 dims + dtype 名拼 langtype（如 {2,3},"float32" → "[2,3]float32"）；输出形状与输入不同的算子（matmul/reduce/reshape）用。
+inline std::string make_langtype(const std::vector<int> &dims, const std::string &kind) {
     std::string s = "[";
     for (size_t i = 0; i < dims.size(); i++) {
         if (i)
@@ -65,7 +65,7 @@ inline int elem_size(const std::string &kind) {
 struct View {
     uint8_t *base = nullptr; // kvspaceGet 借用指针（不得 free）
     kvspaceHead_t head{};
-    std::string kindexpr;
+    std::string langtype;
     bool found = false;
     void *body() const { return base + head.body_offset; }
     std::vector<int> dims() const {
@@ -91,13 +91,19 @@ inline View read_view(void *kv, const std::string &path) {
     if (kvspaceDecodeHead(out, olen, &v.head) != 0)
         return v;
     v.base = out;
-    v.kindexpr.assign((const char *)v.head.langtype,
+    v.langtype.assign((const char *)v.head.langtype,
                       strnlen((const char *)v.head.langtype, sizeof(v.head.langtype)));
     v.found = true;
     return v;
 }
 
-// 在借用/可写 body 指针上原位建 Tensor<T>（不拥有内存：deleter=nullptr）。
+// memcpy 版 copyer（CopyFn 语义 (src, dst, n)），供 reshape 等需拷贝的 kernel 用；只读 src 写 dst，安全。
+template <typename T>
+inline void mem_copy(T *src, T *dst, int n) {
+    std::memcpy(dst, src, (size_t)n * sizeof(T));
+}
+
+// 在借用/可写 body 指针上原位建 Tensor<T>（不拥有内存：deleter/newer=nullptr，绝不 free kvspace body）。
 template <typename T>
 inline Tensor<T> borrow(void *data, const std::vector<int> &dims) {
     Tensor<T> t;
@@ -105,13 +111,13 @@ inline Tensor<T> borrow(void *data, const std::vector<int> &dims) {
     t.data = (T *)data;
     t.deleter = nullptr;
     t.newer = nullptr;
-    t.copyer = nullptr;
+    t.copyer = &mem_copy<T>;
     return t;
 }
 
 // 分配输出：WriteNewPlace 要可写 body 偏移指针，返回借用 Tensor<T>（写入即写 kvspace）。
 template <typename T>
-inline Tensor<T> alloc_out(void *kv, const std::string &key, const std::string &kindexpr,
+inline Tensor<T> alloc_out(void *kv, const std::string &key, const std::string &langtype,
                            const std::vector<int> &dims) {
     int n = 1;
     for (int d : dims)
@@ -120,7 +126,7 @@ inline Tensor<T> alloc_out(void *kv, const std::string &key, const std::string &
         n = 1;
     uint8_t *bp = nullptr;
     char err[256] = {0};
-    kvspaceWriteNewPlace(kv, key.c_str(), 0, STORETYPE_ARRAYND, 0, 0, kindexpr.c_str(),
+    kvspaceWriteNewPlace(kv, key.c_str(), 0, STORETYPE_ARRAYND, 0, 0, langtype.c_str(),
                          (uint32_t)(n * sizeof(T)), &bp, err, sizeof(err));
     return borrow<T>(bp, dims);
 }

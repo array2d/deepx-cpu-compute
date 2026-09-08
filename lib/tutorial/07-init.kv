@@ -1,0 +1,16 @@
+// CPU 初始化（myrwircaps: deepx/miaobyte·constant/arange/uniform）
+// 约定：读参 0 = 形状 []int64；其后为标量算子参；输出 dtype 取自值参声明类型。
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/07-init.kv
+rwfunc test() -> () {
+	shape6:[]int64 = [2, 3]
+	shape4:[]int64 = [4]
+	v:float64 = 3.0
+	start:float64 = 0.0
+	step:float64 = 1.0
+	low:float64 = 0.0
+	high:float64 = 1.0
+	seed:float64 = 42.0
+	deepx/miaobyte·constant(shape6, v) -> c
+	deepx/miaobyte·arange(shape4, start, step) -> r
+	deepx/miaobyte·uniform(shape4, low, high, seed) -> u
+}

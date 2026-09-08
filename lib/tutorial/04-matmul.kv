@@ -1,8 +1,11 @@
 // CPU 矩阵乘（myrwircaps: deepx/miaobyte·matmul、deepx/cblas·matmul）
+// 2×2 输入由核心 xv·reshape 从扁平 []float64 构造（dims 为独立标量参）。
 // 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/04-matmul.kv
 rwfunc test() -> () {
-	a:[2,2]float64 = [1.0, 2.0, 3.0, 4.0]
-	b:[2,2]float64 = [5.0, 6.0, 7.0, 8.0]
+	a0:[]float64 = [1.0, 2.0, 3.0, 4.0]
+	b0:[]float64 = [5.0, 6.0, 7.0, 8.0]
+	xv·reshape(a0, 2, 2) -> a
+	xv·reshape(b0, 2, 2) -> b
 	deepx/miaobyte·matmul(a, b) -> m1
 	deepx/cblas·matmul(a, b) -> m2
 }

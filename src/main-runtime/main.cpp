@@ -91,7 +91,7 @@ void set_str(void *kv, const std::string &key, const std::string &val) {
 // 执行时以 opcode 查表得 (id, form)，按 form 取参、按 id 派发到对应 deepx-core kernel。
 // form 决定实参形态：BINARY=A,B→C；SCALAR=A,标量→C；RSCALAR=标量,A→C（标量在前）；UNARY=A→C；
 // CMP=A,B→bool mask；CMPS=A,标量→bool mask。
-enum Form { F_BINARY, F_SCALAR, F_RSCALAR, F_UNARY, F_CMP, F_CMPS, F_MATMUL, F_REDUCE, F_RESHAPE, F_INIT };
+enum Form { F_BINARY, F_SCALAR, F_RSCALAR, F_UNARY, F_CMP, F_CMPS, F_MATMUL, F_REDUCE, F_TRANSPOSE, F_INIT };
 enum OpId {
     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW, OP_MAX, OP_MIN,
     OP_ADDS, OP_SUBS, OP_MULS, OP_DIVS, OP_POWS, OP_MAXS, OP_MINS,
@@ -101,7 +101,7 @@ enum OpId {
     OP_EQS, OP_NES, OP_LTS, OP_GTS,
     OP_MATMUL, OP_MATMUL_CBLAS,
     OP_SUM, OP_PROD, OP_RMAX, OP_RMIN,
-    OP_RESHAPE, OP_TRANSPOSE,
+    OP_TRANSPOSE,
     OP_CONSTANT, OP_ARANGE, OP_UNIFORM,
 };
 struct MyRwirCap {
@@ -151,11 +151,10 @@ const MyRwirCap myrwircaps[] = {
     {"deepx/miaobyte·prod", OP_PROD, F_REDUCE, 3, 1, "any\nany\nany\nany"},
     {"deepx/miaobyte·reducemax", OP_RMAX, F_REDUCE, 3, 1, "any\nany\nany\nany"},
     {"deepx/miaobyte·reducemin", OP_RMIN, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·reshape", OP_RESHAPE, F_RESHAPE, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·transpose", OP_TRANSPOSE, F_RESHAPE, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·constant", OP_CONSTANT, F_INIT, 1, 1, "any\nany"},
-    {"deepx/miaobyte·arange", OP_ARANGE, F_INIT, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·uniform", OP_UNIFORM, F_INIT, 3, 1, "any\nany\nany\nany"},
+    {"deepx/miaobyte·transpose", OP_TRANSPOSE, F_TRANSPOSE, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·constant", OP_CONSTANT, F_INIT, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·arange", OP_ARANGE, F_INIT, 3, 1, "any\nany\nany\nany"},
+    {"deepx/miaobyte·uniform", OP_UNIFORM, F_INIT, 4, 1, "any\nany\nany\nany\nany"},
 };
 
 // 命中返 cap 指针，未命中返 nullptr。
@@ -189,7 +188,7 @@ std::vector<int> read_int_vec(void *kv, const std::string &pc, int idx) {
     std::vector<int> out;
     if (!v.found)
         return out;
-    std::string k = kind_of(v.kindexpr);
+    std::string k = kind_of(v.langtype);
     int n = v.numel();
     if (k == "int64") {
         auto *p = (int64_t *)v.body();
@@ -219,7 +218,7 @@ void do_binary(void *kv, int id, const std::string &op, const View &va, const Vi
                const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
     auto B = borrow<T>(vb.body(), vb.dims());
-    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    auto C = alloc_out<T>(kv, out, va.langtype, va.dims());
     switch (id) {
     case OP_ADD: tf::add<tf::miaobyte, T>(A, B, C); break;
     case OP_SUB: tf::sub<tf::miaobyte, T>(A, B, C); break;
@@ -250,7 +249,7 @@ void do_matmul(void *kv, bool use_cblas, const std::string &op, const View &va, 
     auto A = borrow<T>(va.body(), va.dims());
     auto B = borrow<T>(vb.body(), vb.dims());
     deepx::Shape cs = deepx::matmul_shape(A.shape, B.shape);
-    auto C = alloc_out<T>(kv, out, make_kindexpr(cs.shape, kind_of(va.kindexpr)), cs.shape);
+    auto C = alloc_out<T>(kv, out, make_langtype(cs.shape, kind_of(va.langtype)), cs.shape);
     if (use_cblas) {
         if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>)
             tf::matmul<tf::cblas, T>(A, B, C);
@@ -268,7 +267,7 @@ void do_reduce(void *kv, int id, const std::string &op, const View &va,
                const std::vector<int> &dims, bool keepdims, const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
     std::vector<int> od = deepx::reducedShape(va.dims(), dims, keepdims);
-    auto B = alloc_out<T>(kv, out, make_kindexpr(od, kind_of(va.kindexpr)), od);
+    auto B = alloc_out<T>(kv, out, make_langtype(od, kind_of(va.langtype)), od);
     switch (id) {
     case OP_SUM: tf::sum<tf::miaobyte, T>(A, dims, keepdims, B); break;
     case OP_PROD: tf::prod<tf::miaobyte, T>(A, dims, keepdims, B); break;
@@ -278,21 +277,18 @@ void do_reduce(void *kv, int id, const std::string &op, const View &va,
     dump_out(op, B);
 }
 
-// reshape(A, new_shape) / transpose(A, dim_order) -> B。
+// transpose(A, dim_order) -> B（reshape 是纯视图变换，由核心 xv·reshape 承担，deepx 不复刻）。
 template <typename T>
-void do_reshape(void *kv, int id, const std::string &op, const View &va,
-                const std::vector<int> &param, const std::string &out) {
+void do_transpose(void *kv, const std::string &op, const View &va,
+                  const std::vector<int> &dim_order, const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
-    std::vector<int> od = (id == OP_TRANSPOSE) ? deepx::transposeShape(va.dims(), param) : param;
-    auto B = alloc_out<T>(kv, out, make_kindexpr(od, kind_of(va.kindexpr)), od);
-    if (id == OP_TRANSPOSE)
-        tf::transpose<tf::miaobyte, T>(A, param, B);
-    else
-        tf::reshape<tf::miaobyte, T>(A, param, B);
+    std::vector<int> od = deepx::transposeShape(va.dims(), dim_order);
+    auto B = alloc_out<T>(kv, out, make_langtype(od, kind_of(va.langtype)), od);
+    tf::transpose<tf::miaobyte, T>(A, dim_order, B);
     dump_out(op, B);
 }
 
-// init：填充声明形状的输出张量（形状取自写槽已声明的 kindexpr）。
+// init：填充声明形状的输出张量（形状取自写槽已声明的 langtype）。
 template <typename T>
 void do_init(int id, const std::string &op, deepx::Tensor<T> &Tn, double p0, double p1, double p2) {
     switch (id) {
@@ -308,7 +304,7 @@ template <typename T>
 void do_scalar(void *kv, int id, const std::string &op, const View &va, double sv,
                const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
-    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    auto C = alloc_out<T>(kv, out, va.langtype, va.dims());
     T v = (T)sv;
     switch (id) {
     case OP_ADDS: tf::addscalar<tf::miaobyte, T>(A, v, C); break;
@@ -337,7 +333,7 @@ template <typename T>
 void do_rscalar(void *kv, int id, const std::string &op, double sv, const View &va,
                 const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
-    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    auto C = alloc_out<T>(kv, out, va.langtype, va.dims());
     T v = (T)sv;
     switch (id) {
     case OP_RSUBS: tf::rsubscalar<tf::miaobyte, T>(v, A, C); break;
@@ -361,7 +357,7 @@ void do_rscalar(void *kv, int id, const std::string &op, double sv, const View &
 template <typename T>
 void do_unary(void *kv, int id, const std::string &op, const View &va, const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
-    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    auto C = alloc_out<T>(kv, out, va.langtype, va.dims());
     if (id == OP_SQRT) {
         tf::sqrt<tf::miaobyte, T>(A, C);
     } else if (id == OP_NEG) {
@@ -388,7 +384,7 @@ void do_cmp(void *kv, int id, const std::string &op, const View &va, const View 
             const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
     auto B = borrow<T>(vb.body(), vb.dims());
-    auto M = alloc_out<bool>(kv, out, with_kind(va.kindexpr, "bool"), va.dims());
+    auto M = alloc_out<bool>(kv, out, with_kind(va.langtype, "bool"), va.dims());
     switch (id) {
     case OP_EQ: tf::equal<tf::miaobyte, T, bool>(A, B, 1e-6f, M); break;
     case OP_NE: tf::notequal<tf::miaobyte, T, bool>(A, B, 1e-6f, M); break;
@@ -403,7 +399,7 @@ template <typename T>
 void do_cmps(void *kv, int id, const std::string &op, const View &va, double sv,
              const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
-    auto M = alloc_out<bool>(kv, out, with_kind(va.kindexpr, "bool"), va.dims());
+    auto M = alloc_out<bool>(kv, out, with_kind(va.langtype, "bool"), va.dims());
     T v = (T)sv;
     switch (id) {
     case OP_EQS: tf::equalscalar<tf::miaobyte, T, bool>(A, v, 1e-6f, M); break;
@@ -437,26 +433,24 @@ void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
             fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
             return;
         }
-        std::string k = kind_of(vb.kindexpr);
+        std::string k = kind_of(vb.langtype);
 #define C(T) do_rscalar<T>(kv, cap.id, op, sv, vb, out)
         DISPATCH_T(k, C);
 #undef C
         return;
     }
-    if (cap.form == F_INIT) { // 输出张量形状取自写槽已声明的值（layout 阶段已布局），读参仅标量
-        View vo = read_view(kv, out);
-        if (!vo.found) {
-            fprintf(stderr, "deepx-cpu: %s 写槽 %s 未布局，无法取形状\n", op.c_str(), out.c_str());
-            return;
-        }
-        std::string k = kind_of(vo.kindexpr);
-        double p0 = read_scalar(kv, pc, 0);
-        double p1 = cap.nr > 1 ? read_scalar(kv, pc, 1) : 0.0;
-        double p2 = cap.nr > 2 ? read_scalar(kv, pc, 2) : 0.0;
+    if (cap.form == F_INIT) { // 读参 0 = 形状 []int64；后续标量为算子参；dtype 取自值参的声明类型
+        std::vector<int> dims = read_int_vec(kv, pc, 0);
+        View vv = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
+        std::string k = vv.found ? kind_of(vv.langtype) : "float64";
+        std::string ke = make_langtype(dims, k);
+        double p0 = read_scalar(kv, pc, 1);
+        double p1 = cap.nr > 2 ? read_scalar(kv, pc, 2) : 0.0;
+        double p2 = cap.nr > 3 ? read_scalar(kv, pc, 3) : 0.0;
 #define C(T)                                                                                       \
     do {                                                                                           \
-        auto Tn = alloc_out<T>(kv, out, vo.kindexpr, vo.dims());                                    \
-        do_init<T>(cap.id, op, Tn, p0, p1, p2);                                                     \
+        auto Tn = alloc_out<T>(kv, out, ke, dims);                                                 \
+        do_init<T>(cap.id, op, Tn, p0, p1, p2);                                                    \
     } while (0)
         DISPATCH_T(k, C);
 #undef C
@@ -468,7 +462,7 @@ void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
         fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
         return;
     }
-    std::string k = kind_of(va.kindexpr);
+    std::string k = kind_of(va.langtype);
     if (cap.form == F_BINARY || cap.form == F_CMP || cap.form == F_MATMUL) {
         View vb = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
         if (!vb.found) {
@@ -505,9 +499,9 @@ void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
 #define C(T) do_reduce<T>(kv, cap.id, op, va, dims, keepdims, out)
         DISPATCH_T(k, C);
 #undef C
-    } else if (cap.form == F_RESHAPE) {
-        std::vector<int> param = read_int_vec(kv, pc, 1);
-#define C(T) do_reshape<T>(kv, cap.id, op, va, param, out)
+    } else if (cap.form == F_TRANSPOSE) {
+        std::vector<int> dim_order = read_int_vec(kv, pc, 1);
+#define C(T) do_transpose<T>(kv, op, va, dim_order, out)
         DISPATCH_T(k, C);
 #undef C
     } else { // F_UNARY

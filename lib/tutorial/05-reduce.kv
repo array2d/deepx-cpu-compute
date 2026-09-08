@@ -1,0 +1,12 @@
+// CPU 归约（myrwircaps: deepx/miaobyte·sum/prod/reducemax/reducemin）
+// reduce(A, dims, keepdims)：dims 为 []int64，keepdims 为 bool。
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/05-reduce.kv
+rwfunc test() -> () {
+	a0:[]float64 = [1.0, 2.0, 3.0, 4.0]
+	xv·reshape(a0, 2, 2) -> a
+	axis:[]int64 = [0]
+	deepx/miaobyte·sum(a, axis, false) -> s
+	deepx/miaobyte·prod(a, axis, false) -> p
+	deepx/miaobyte·reducemax(a, axis, false) -> mx
+	deepx/miaobyte·reducemin(a, axis, false) -> mn
+}

@@ -1,0 +1,9 @@
+// CPU 变形（myrwircaps: deepx/miaobyte·transpose）
+// reshape 是纯视图变换，由核心 xv·reshape 承担；deepx 只实现搬数据的 transpose。
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/06-changeshape.kv
+rwfunc test() -> () {
+	a0:[]float64 = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+	xv·reshape(a0, 2, 3) -> a
+	order:[]int64 = [1, 0]
+	deepx/miaobyte·transpose(a, order) -> t
+}
