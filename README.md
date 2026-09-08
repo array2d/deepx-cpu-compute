@@ -31,14 +31,17 @@ kv = kvlangRuntimeKvspaceHandle(rt)      # 复用同一句柄（durable 惰性 f
 register()                               # 每个 tensor.* opcode 写 /lib/<op> 签名
 vid = Bootstrap(entry)
 loop:
-  rc = ExecuteVthread(rt, vid, &pc)      # C 核心跑到遇 ext rwir 冒泡
+  rc = ExecuteVthread(rt, vid, &pc)      # C 核心跑 native/控制/用户 rwfunc，遇 ext rwir 冒泡
   rc==0 → done; rc<0 → error
-  op = Params(pc)
-  op ∈ myrwircaps → 就地跑 CPU kernel（零拷贝）+ NextPc
-  else            → Handoff 交外部扩展
+  连续批处理 pc 起的 tensor.*：就地跑 CPU kernel（零拷贝）+ NextPc
+  停在非本 caps 的指令 c：
+    c ∈ 别的 runtime 的 ext rwir → Handoff（跨 runtime 协作，暂无）
+    否则（native/控制/帧结束）    → 写回 pc，ExecuteVthread 续跑
 ```
 
-**tensor 零拷贝**：`ResolveReadPath` 拿容器路径 → `kvspaceGet` 取 TLV → `DecodeHead` 定位 body → 在该地址原位建 `Tensor<T>`（借用 data、`deleter=nullptr`）跑 kernel；写经 `TlvEncode` + `WriteNewPlace`/`WriteInPlace`。tensor data 直接落 kvspace-c 的 shm。
+**tensor 零拷贝**：`ResolveReadPath` 拿容器路径 → `kvspaceGet` 取 TLV → `DecodeHead` 定位 body → 在该地址原位建 `Tensor<T>`（借用 data、`deleter=nullptr`）跑 kernel；写经 `WriteNewPlace`/`WriteInPlace` 拿可写 body 指针。
+
+**内存模型**：tensordata 一律活在 kvspace（shm 后端）分配的内存里，`Tensor<T>` 只借用该地址（`newer/deleter/copyer` 全为 `nullptr`），不经 deepx-core 的内存池。故本 runtime **不依赖 jemalloc**，deepx-core 的 `mempool`/`tensorlife`/`io` 均不参与编译。tensor 的类型即 kvspace langtype `[dims]dtype`（如 `[256,256]float32`），不引入额外的 “tensor” 类型名。
 
 ## myrwircaps（CPU tensor 运算表）
 
@@ -68,8 +71,8 @@ bash build.sh    # CMake，产物 /tmp/deepx/cpu-compute/<os>-<arch>/deepx-cpu-c
 ```
 
 依赖（Linux apt 包名）：已装 `/usr/lib` 的 `libkvlang_runtime.so` / `libkvspace.so` / `libkvlanglayout.so`
-及其 `/usr/include` 头；`libopenblas-dev`（openblas-pthread）、`libhwy-dev`、`libjemalloc-dev`、
-`libyaml-cpp-dev`、`nlohmann-json3-dev`、`pkg-config`、OpenMP。
+及其 `/usr/include` 头；`libopenblas-dev`（openblas-pthread）、`libhwy-dev`、
+`libyaml-cpp-dev`、`nlohmann-json3-dev`、OpenMP。（不再依赖 jemalloc——tensordata 走 kvspace shm。）
 `-DDEEPX_CPU_BUILD_TESTS=ON` 另建 deepx-core kernel 单元测试（默认关）。
 
 ## 运行

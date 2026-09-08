@@ -58,23 +58,16 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.5-a")
 endif()
-# 内存池
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(JEMALLOC REQUIRED jemalloc)
-include_directories(${JEMALLOC_INCLUDE_DIRS})
-link_directories(${JEMALLOC_LIBRARY_DIRS})
+# tensordata 全部活在 kvspace shm 里（tensor_bridge 零拷贝借用），不经 deepx-core 内存池，
+# 故不依赖 jemalloc；序列化走 kvspace，不依赖 yaml-cpp/nlohmann-json。
+# 第三方依赖仅保留：OpenBLAS（cblas）、Highway（SIMD）、OpenMP（并行）。
 
-
-find_package(yaml-cpp REQUIRED)
- 
 # 纯模板头文件库（计算 kernel 实现）
 add_library(deepx_cpu INTERFACE)
 target_include_directories(deepx_cpu INTERFACE src)
 target_link_libraries( deepx_cpu
     INTERFACE
     deepx_core
-    yaml-cpp::yaml-cpp
-    ${JEMALLOC_LIBRARIES}
     ${OpenBLAS_LIBRARIES}
     OpenMP::OpenMP_CXX
     hwy::hwy
@@ -96,9 +89,3 @@ target_link_libraries(${PROJECT_NAME}
     ${KVSPACE_LIB}
     ${KVLANGLAYOUT_LIB}
 )
-
-# kernel 单元测试（deepx-core 自带，非 main-runtime 产物；默认关）
-option(DEEPX_CPU_BUILD_TESTS "build deepx-core tensorfunc unit tests" OFF)
-if(DEEPX_CPU_BUILD_TESTS)
-    add_subdirectory(test/tensorfunc)
-endif()

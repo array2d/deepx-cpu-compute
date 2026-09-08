@@ -7,7 +7,6 @@ set(CMAKE_BUILD_TYPE Debug)
 
 # Include directories
 include_directories(include)
-include_directories(/opt/homebrew/opt/nlohmann-json/include)
 
 # Source files — only .cpp files that need compilation
 file(GLOB_RECURSE CORE_SOURCES "src/*.cpp")

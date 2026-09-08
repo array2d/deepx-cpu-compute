@@ -37,13 +37,6 @@ namespace deepx
 
         int linearat(const std::vector<int> &indices) const;
         std::vector<int> linearto(int idx_linear) const;
-
-        std::string toYaml() const;
-        void fromYaml(const std::string &yaml);
-
-        void saveShape(const std::string &tensorPath) const;
-
-        static std::pair<std::string, Shape> loadShape(const std::string &path);
     };
 
 // ── range() serial, inline ──

@@ -1,7 +1,8 @@
 // deepx-cpu-compute —— CPU tensor 计算 main-runtime。
-// 嵌入 kvlang/runtime（C 核心）：自身只解释 myrwircaps = tensor.* 算子表（就地零拷贝跑
-// deepx-core kernel），控制流/native/用户 rwfunc 交回 C 核心，非 tensor 扩展 rwir handoff。
-// 驱动循环对齐 kvlang/runtime-rs 的 drive_vid。
+// 嵌入 kvlang/runtime（C 核心）：自身只解释 myrwircapstable = deepx/miaobyte·* 算子表（就地
+// 零拷贝跑 deepx-core kernel），控制流/native/用户 rwfunc 写回 pc 交回 C 核心续跑；别的 runtime
+// 的 rwir 才 handoff（跨 runtime 协作，暂无）。驱动循环对齐 kvlang/runtime-rs 的 drive_vid。
+// 执行只查进程内 myrwircapstable；/lib/<opcode> 注册仅供分布式调度，本进程派发不依赖它。
 
 #include <cstdint>
 #include <cstdio>
@@ -77,49 +78,59 @@ void set_str(void *kv, const std::string &key, const std::string &val) {
     free(tlv);
 }
 
-// ── myrwircaps：CPU tensor 算子表（逐槽 kindexpr 签名）───────────────────
-struct Cap {
-    const char *op;
+// ── myrwircapstable：本 runtime 兑现的 rwir 表「key: opcode 串, id: handler 编号」──
+// 一个 tensor 运算可有多套实现（miaobyte/cblas…），故按 /lib/deepx/<作者>·<op> 命名空间区分；
+// 执行时以 opcode 查表得 id，按 id 派发到对应 kernel。逐槽 kindexpr 签名供 /lib 注册用。
+enum OpId { OP_ADD, OP_SUB, OP_MUL, OP_DIV };
+struct MyRwirCap {
+    const char *op; // key
+    int id;
     int nr, nw;
     const char *sig;
 };
-const Cap CAPS[] = {
-    {"tensor.add", 2, 1, "any\nany\nany"},
-    {"tensor.sub", 2, 1, "any\nany\nany"},
-    {"tensor.mul", 2, 1, "any\nany\nany"},
-    {"tensor.div", 2, 1, "any\nany\nany"},
+const MyRwirCap myrwircapstable[] = {
+    {"deepx/miaobyte·add", OP_ADD, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·sub", OP_SUB, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·mul", OP_MUL, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·div", OP_DIV, 2, 1, "any\nany\nany"},
 };
 
-bool in_myrwircaps(const std::string &op) {
-    for (const Cap &c : CAPS)
+// 命中返 handler id，未命中返 -1。
+int myrwircaps_id(const std::string &op) {
+    for (const MyRwirCap &c : myrwircapstable)
         if (op == c.op)
-            return true;
-    return false;
+            return c.id;
+    return -1;
 }
 
-void register_caps(void *kv) {
-    for (const Cap &c : CAPS)
+void register_myrwircaps(void *kv) {
+    for (const MyRwirCap &c : myrwircapstable)
         kvlang_rwirextRegister(kv, c.op, c.nr, c.nw, c.sig);
 }
 
 // A op B -> C（同形同型，逐 dtype 展开）。
 template <typename T>
-void binary(void *kv, const std::string &op, const View &va, const View &vb,
+void binary(void *kv, int id, const std::string &op, const View &va, const View &vb,
             const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
     auto B = borrow<T>(vb.body(), vb.dims());
     auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
-    if (op == "tensor.add")
+    switch (id) {
+    case OP_ADD:
         tf::add<tf::miaobyte, T>(A, B, C);
-    else if (op == "tensor.sub")
+        break;
+    case OP_SUB:
         tf::sub<tf::miaobyte, T>(A, B, C);
-    else if (op == "tensor.mul")
+        break;
+    case OP_MUL:
         tf::mul<tf::miaobyte, T>(A, B, C);
-    else if (op == "tensor.div") {
+        break;
+    case OP_DIV:
         if constexpr (std::is_floating_point_v<T>) // 整型 SIMD 无除法，仅浮点
             tf::div<tf::miaobyte, T>(A, B, C);
         else
-            fprintf(stderr, "deepx-cpu: tensor.div 暂不支持整型\n");
+            fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
+        break;
     }
     if (getenv("DEEPX_DUMP")) {
         fprintf(stderr, "[deepx-cpu] %s ->", op.c_str());
@@ -129,7 +140,7 @@ void binary(void *kv, const std::string &op, const View &va, const View &vb,
     }
 }
 
-void dispatch(void *kv, const std::string &op, const std::string &pc) {
+void dispatch(void *kv, const std::string &op, int id, const std::string &pc) {
     std::string p0 = take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 0));
     std::string p1 = take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1));
     std::string out = take(kvlang_rwirextResolveWrite(kv, pc.c_str(), 0));
@@ -140,13 +151,13 @@ void dispatch(void *kv, const std::string &op, const std::string &pc) {
     }
     std::string k = kind_of(va.kindexpr);
     if (k == "float64")
-        binary<double>(kv, op, va, vb, out);
+        binary<double>(kv, id, op, va, vb, out);
     else if (k == "float32")
-        binary<float>(kv, op, va, vb, out);
+        binary<float>(kv, id, op, va, vb, out);
     else if (k == "int64")
-        binary<int64_t>(kv, op, va, vb, out);
+        binary<int64_t>(kv, id, op, va, vb, out);
     else if (k == "int32")
-        binary<int32_t>(kv, op, va, vb, out);
+        binary<int32_t>(kv, id, op, va, vb, out);
     else
         fprintf(stderr, "deepx-cpu: %s 不支持 dtype %s\n", op.c_str(), k.c_str());
 }
@@ -166,11 +177,12 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
         for (;;) {
             std::string params = take(kvlang_rwirextParams(kv, c.c_str()));
             std::string op = params.substr(0, params.find('\n'));
-            if (!in_myrwircaps(op)) {
+            int id = myrwircaps_id(op);
+            if (id < 0) {
                 stop_op = op;
                 break;
             }
-            dispatch(kv, op, c);
+            dispatch(kv, op, id, c);
             c = take(kvlang_rwirextNextPc(c.c_str()));
         }
         // pc 可能属子 vthread：目标 vid 由 pc 第 3 段导出。
@@ -183,7 +195,7 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
                     sub = c.substr(a + 1, b - a - 1);
             }
         }
-        if (!stop_op.empty() && in_myrwircaps(stop_op)) {
+        if (!stop_op.empty() && myrwircaps_id(stop_op) >= 0) {
             if (kvlang_rwirextHandoff(kv, sub.c_str(), c.c_str()) != 0) {
                 fprintf(stderr, "deepx-cpu: handoff %s 失败 @ %s\n", stop_op.c_str(), c.c_str());
                 exit(1);

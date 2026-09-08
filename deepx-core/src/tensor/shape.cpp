@@ -2,8 +2,6 @@
 #include <iostream>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-
 #include "deepx/shape.hpp"
 namespace deepx
 {
@@ -89,54 +87,4 @@ namespace deepx
         return indices;
     }
 
-    std::string Shape::toYaml() const{
-        nlohmann::json j;
-        j["dtype"] = precision_to_string(dtype);
-        j["dim"] = dim();
-        j["shape"] = shape;
-        j["stride"] = strides;
-        j["size"] = size;
-        return j.dump();
-    }
-    void Shape::fromYaml(const std::string &json){
-        auto j = nlohmann::json::parse(json);
-        dtype = precision_from_string(j["dtype"].get<std::string>());
-        shape = j["shape"].get<std::vector<int>>();
-        strides = j["stride"].get<std::vector<int>>();
-        size = j["size"].get<int>();
-
-        Shape checkedshape(shape);
-        if(checkedshape.shape!=shape){
-            throw std::runtime_error("Shape::fromYaml: shape mismatch");
-        }
-        if(checkedshape.strides!=strides){
-            throw std::runtime_error("Shape::fromYaml: strides mismatch");
-        }
-         if(checkedshape.size!=size){
-            throw std::runtime_error("Shape::fromYaml: size mismatch");
-        }
-    }
-
-    void Shape::saveShape( const std::string &tensorPath) const{
-            std::string shapedata = toYaml();
-            std::ofstream shape_fs(tensorPath + ".shape", std::ios::binary);
-            shape_fs.write(shapedata.c_str(), shapedata.size());
-            shape_fs.close();
-        }
-
-    std::pair<std::string,Shape> Shape::loadShape(const std::string &path)   
-    {
-        std::string shapepath = path + ".shape";
-        std::ifstream shape_fs(shapepath, std::ios::binary);
-        if (!shape_fs.is_open())
-        {
-                throw std::runtime_error("Failed to open shape file: " + shapepath);
-            }
-            std::string shapedata((std::istreambuf_iterator<char>(shape_fs)), std::istreambuf_iterator<char>());
-            Shape shape;
-            shape.fromYaml(shapedata);
-            std::string filename = stdutil::filename(path);
-            std::string tensor_name = filename.substr(0, filename.find_last_of('.'));
-            return std::make_pair(tensor_name, shape);
-        }
 }
