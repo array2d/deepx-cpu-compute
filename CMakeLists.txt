@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15...3.29)
-project(deepx-exop-cpu LANGUAGES CXX )
+project(deepx-cpu-compute LANGUAGES CXX )
 
 # 设置 C++ 标准
 set(CMAKE_CXX_STANDARD 17)
@@ -12,16 +12,8 @@ set(CMAKE_BUILD_TYPE Debug)
 # 包含头文件目录
 include_directories(src)
 
-# hiredis / nlohmann/json（可执行文件连接 Redis 需要）
-include_directories(/opt/homebrew/opt/hiredis/include)
-link_directories(/opt/homebrew/opt/hiredis/lib)
-include_directories(/opt/homebrew/opt/nlohmann-json/include)
-
-# 客户端源文件（可执行文件）
-file(GLOB_RECURSE CLIENT_SOURCES "src/client/*.cpp")
-
 if(NOT TARGET deepx_core)
-    add_subdirectory(../deepx-core deepx-core)
+    add_subdirectory(deepx-core deepx-core)
 endif()
 
 # cpu 线性代数库
@@ -87,13 +79,26 @@ target_link_libraries( deepx_cpu
     OpenMP::OpenMP_CXX
     hwy::hwy
 )
-# ── 计算执行器可执行文件（对接 Redis） ──
-add_executable(${PROJECT_NAME} ${CLIENT_SOURCES})
+# ── main-runtime：嵌入 kvlang/runtime（C 核心），CPU tensor myrwircaps 就地兑现 ──
+# 依赖已安装的 C ABI（/usr/lib + /usr/include）：runtime + rwirext（libkvlang_runtime）、
+# kvspace（libkvspace）、layout（libkvlanglayout，仅取 kvlangLayoutFile 符号）。
+find_library(KVLANG_RUNTIME_LIB kvlang_runtime PATHS /usr/lib REQUIRED)
+find_library(KVSPACE_LIB kvspace PATHS /usr/lib REQUIRED)
+find_library(KVLANGLAYOUT_LIB kvlanglayout PATHS /usr/lib REQUIRED)
+
+file(GLOB MAIN_RUNTIME_SOURCES "src/main-runtime/*.cpp")
+add_executable(${PROJECT_NAME} ${MAIN_RUNTIME_SOURCES})
+target_include_directories(${PROJECT_NAME} PRIVATE /usr/include)
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
     deepx_cpu
-    hiredis
+    ${KVLANG_RUNTIME_LIB}
+    ${KVSPACE_LIB}
+    ${KVLANGLAYOUT_LIB}
 )
 
-# 测试
-add_subdirectory(test/tensorfunc)
+# kernel 单元测试（deepx-core 自带，非 main-runtime 产物；默认关）
+option(DEEPX_CPU_BUILD_TESTS "build deepx-core tensorfunc unit tests" OFF)
+if(DEEPX_CPU_BUILD_TESTS)
+    add_subdirectory(test/tensorfunc)
+endif()
