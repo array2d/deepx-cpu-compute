@@ -24,7 +24,7 @@ case "$OS" in
         ;;
 esac
 
-cmake "$DIR" -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/openblas;/opt/homebrew/opt/jemalloc;/opt/homebrew/opt/yaml-cpp" $CMAKE_EXTRA
+cmake "$DIR" -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/openblas" $CMAKE_EXTRA
 cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
 # 重命名产物为平台特定名

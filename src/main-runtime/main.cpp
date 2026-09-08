@@ -80,27 +80,67 @@ void set_str(void *kv, const std::string &key, const std::string &val) {
 
 // ── myrwircapstable：本 runtime 兑现的 rwir 表「key: opcode 串, id: handler 编号」──
 // 一个 tensor 运算可有多套实现（miaobyte/cblas…），故按 /lib/deepx/<作者>·<op> 命名空间区分；
-// 执行时以 opcode 查表得 id，按 id 派发到对应 kernel。逐槽 kindexpr 签名供 /lib 注册用。
-enum OpId { OP_ADD, OP_SUB, OP_MUL, OP_DIV };
+// 执行时以 opcode 查表得 (id, form)，按 form 取参、按 id 派发到对应 deepx-core kernel。
+// form 决定实参形态：BINARY=A,B→C；SCALAR=A,标量→C；RSCALAR=标量,A→C（标量在前）；UNARY=A→C；
+// CMP=A,B→bool mask；CMPS=A,标量→bool mask。
+enum Form { F_BINARY, F_SCALAR, F_RSCALAR, F_UNARY, F_CMP, F_CMPS };
+enum OpId {
+    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW, OP_MAX, OP_MIN,
+    OP_ADDS, OP_SUBS, OP_MULS, OP_DIVS, OP_POWS, OP_MAXS, OP_MINS,
+    OP_RSUBS, OP_RDIVS, OP_RPOWS,
+    OP_SQRT, OP_LOG, OP_EXP, OP_SIN, OP_COS, OP_TAN, OP_NEG, OP_ABS,
+    OP_EQ, OP_NE, OP_LT, OP_GT,
+    OP_EQS, OP_NES, OP_LTS, OP_GTS,
+};
 struct MyRwirCap {
     const char *op; // key
     int id;
+    int form;
     int nr, nw;
     const char *sig;
 };
 const MyRwirCap myrwircapstable[] = {
-    {"deepx/miaobyte·add", OP_ADD, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·sub", OP_SUB, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·mul", OP_MUL, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·div", OP_DIV, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·add", OP_ADD, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·sub", OP_SUB, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·mul", OP_MUL, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·div", OP_DIV, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·pow", OP_POW, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·max", OP_MAX, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·min", OP_MIN, F_BINARY, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·addscalar", OP_ADDS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·subscalar", OP_SUBS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·mulscalar", OP_MULS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·divscalar", OP_DIVS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·powscalar", OP_POWS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·maxscalar", OP_MAXS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·minscalar", OP_MINS, F_SCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·rsubscalar", OP_RSUBS, F_RSCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·rdivscalar", OP_RDIVS, F_RSCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·rpowscalar", OP_RPOWS, F_RSCALAR, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·sqrt", OP_SQRT, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·log", OP_LOG, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·exp", OP_EXP, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·sin", OP_SIN, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·cos", OP_COS, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·tan", OP_TAN, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·neg", OP_NEG, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·abs", OP_ABS, F_UNARY, 1, 1, "any\nany"},
+    {"deepx/miaobyte·equal", OP_EQ, F_CMP, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·notequal", OP_NE, F_CMP, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·less", OP_LT, F_CMP, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·greater", OP_GT, F_CMP, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·equalscalar", OP_EQS, F_CMPS, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·notequalscalar", OP_NES, F_CMPS, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·lessscalar", OP_LTS, F_CMPS, 2, 1, "any\nany\nbool"},
+    {"deepx/miaobyte·greaterscalar", OP_GTS, F_CMPS, 2, 1, "any\nany\nbool"},
 };
 
-// 命中返 handler id，未命中返 -1。
-int myrwircaps_id(const std::string &op) {
+// 命中返 cap 指针，未命中返 nullptr。
+const MyRwirCap *myrwircaps_find(const std::string &op) {
     for (const MyRwirCap &c : myrwircapstable)
         if (op == c.op)
-            return c.id;
-    return -1;
+            return &c;
+    return nullptr;
 }
 
 void register_myrwircaps(void *kv) {
@@ -108,58 +148,229 @@ void register_myrwircaps(void *kv) {
         kvlang_rwirextRegister(kv, c.op, c.nr, c.nw, c.sig);
 }
 
-// A op B -> C（同形同型，逐 dtype 展开）。
+// 读参 idx 解析为标量（内联字面量或帧槽值）。
+double read_scalar(void *kv, const std::string &pc, int idx) {
+    std::string s = take(kvlang_rwirextResolveRead(kv, pc.c_str(), idx));
+    return s.empty() ? 0.0 : strtod(s.c_str(), nullptr);
+}
+
 template <typename T>
-void binary(void *kv, int id, const std::string &op, const View &va, const View &vb,
-            const std::string &out) {
+void dump_out(const std::string &op, const deepx::Tensor<T> &C) {
+    if (!getenv("DEEPX_DUMP"))
+        return;
+    fprintf(stderr, "[deepx-cpu] %s ->", op.c_str());
+    for (int i = 0; i < C.shape.size; i++)
+        fprintf(stderr, " %g", (double)C.data[i]);
+    fprintf(stderr, "\n");
+}
+
+// A op B -> C（同形同型）。
+template <typename T>
+void do_binary(void *kv, int id, const std::string &op, const View &va, const View &vb,
+               const std::string &out) {
     auto A = borrow<T>(va.body(), va.dims());
     auto B = borrow<T>(vb.body(), vb.dims());
     auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
     switch (id) {
-    case OP_ADD:
-        tf::add<tf::miaobyte, T>(A, B, C);
-        break;
-    case OP_SUB:
-        tf::sub<tf::miaobyte, T>(A, B, C);
-        break;
-    case OP_MUL:
-        tf::mul<tf::miaobyte, T>(A, B, C);
-        break;
+    case OP_ADD: tf::add<tf::miaobyte, T>(A, B, C); break;
+    case OP_SUB: tf::sub<tf::miaobyte, T>(A, B, C); break;
+    case OP_MUL: tf::mul<tf::miaobyte, T>(A, B, C); break;
+    case OP_MAX: tf::max<tf::miaobyte, T>(A, B, C); break;
+    case OP_MIN: tf::min<tf::miaobyte, T>(A, B, C); break;
     case OP_DIV:
         if constexpr (std::is_floating_point_v<T>) // 整型 SIMD 无除法，仅浮点
             tf::div<tf::miaobyte, T>(A, B, C);
         else
             fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
         break;
+    case OP_POW:
+        if constexpr (std::is_floating_point_v<T>)
+            tf::pow<tf::miaobyte, T>(A, B, C);
+        else
+            fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
+        break;
     }
-    if (getenv("DEEPX_DUMP")) {
-        fprintf(stderr, "[deepx-cpu] %s ->", op.c_str());
-        for (int i = 0; i < C.shape.size; i++)
-            fprintf(stderr, " %g", (double)C.data[i]);
-        fprintf(stderr, "\n");
-    }
+    dump_out(op, C);
 }
 
-void dispatch(void *kv, const std::string &op, int id, const std::string &pc) {
-    std::string p0 = take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 0));
-    std::string p1 = take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1));
+// A op scalar -> C（同形同型）。
+template <typename T>
+void do_scalar(void *kv, int id, const std::string &op, const View &va, double sv,
+               const std::string &out) {
+    auto A = borrow<T>(va.body(), va.dims());
+    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    T v = (T)sv;
+    switch (id) {
+    case OP_ADDS: tf::addscalar<tf::miaobyte, T>(A, v, C); break;
+    case OP_SUBS: tf::subscalar<tf::miaobyte, T>(A, v, C); break;
+    case OP_MULS: tf::mulscalar<tf::miaobyte, T>(A, v, C); break;
+    case OP_MAXS: tf::maxscalar<tf::miaobyte, T>(A, v, C); break;
+    case OP_MINS: tf::minscalar<tf::miaobyte, T>(A, v, C); break;
+    case OP_DIVS:
+        if constexpr (std::is_floating_point_v<T>)
+            tf::divscalar<tf::miaobyte, T>(A, v, C);
+        else
+            fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
+        break;
+    case OP_POWS:
+        if constexpr (std::is_floating_point_v<T>)
+            tf::powscalar<tf::miaobyte, T>(A, v, C);
+        else
+            fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
+        break;
+    }
+    dump_out(op, C);
+}
+
+// scalar op A -> C（标量在前）。
+template <typename T>
+void do_rscalar(void *kv, int id, const std::string &op, double sv, const View &va,
+                const std::string &out) {
+    auto A = borrow<T>(va.body(), va.dims());
+    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    T v = (T)sv;
+    switch (id) {
+    case OP_RSUBS: tf::rsubscalar<tf::miaobyte, T>(v, A, C); break;
+    case OP_RDIVS:
+        if constexpr (std::is_floating_point_v<T>)
+            tf::rdivscalar<tf::miaobyte, T>(v, A, C);
+        else
+            fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
+        break;
+    case OP_RPOWS:
+        if constexpr (std::is_floating_point_v<T>)
+            tf::rpowscalar<tf::miaobyte, T>(v, A, C);
+        else
+            fprintf(stderr, "deepx-cpu: %s 暂不支持整型\n", op.c_str());
+        break;
+    }
+    dump_out(op, C);
+}
+
+// op(A) -> C（一元；超越函数仅浮点，sqrt 全类型）。
+template <typename T>
+void do_unary(void *kv, int id, const std::string &op, const View &va, const std::string &out) {
+    auto A = borrow<T>(va.body(), va.dims());
+    auto C = alloc_out<T>(kv, out, va.kindexpr, va.dims());
+    if (id == OP_SQRT) {
+        tf::sqrt<tf::miaobyte, T>(A, C);
+    } else if (id == OP_NEG) {
+        tf::neg<tf::miaobyte, T>(A, C);
+    } else if (id == OP_ABS) {
+        tf::abs<tf::miaobyte, T>(A, C);
+    } else if constexpr (std::is_floating_point_v<T>) {
+        switch (id) {
+        case OP_LOG: tf::log<tf::miaobyte, T>(A, C); break;
+        case OP_EXP: tf::exp<tf::miaobyte, T>(A, C); break;
+        case OP_SIN: tf::sin<tf::miaobyte, T>(A, C); break;
+        case OP_COS: tf::cos<tf::miaobyte, T>(A, C); break;
+        case OP_TAN: tf::tan<tf::miaobyte, T>(A, C); break;
+        }
+    } else {
+        fprintf(stderr, "deepx-cpu: %s 仅支持浮点\n", op.c_str());
+    }
+    dump_out(op, C);
+}
+
+// A cmp B -> bool mask（equal/notequal 带 epsilon=1e-6）。
+template <typename T>
+void do_cmp(void *kv, int id, const std::string &op, const View &va, const View &vb,
+            const std::string &out) {
+    auto A = borrow<T>(va.body(), va.dims());
+    auto B = borrow<T>(vb.body(), vb.dims());
+    auto M = alloc_out<bool>(kv, out, with_kind(va.kindexpr, "bool"), va.dims());
+    switch (id) {
+    case OP_EQ: tf::equal<tf::miaobyte, T, bool>(A, B, 1e-6f, M); break;
+    case OP_NE: tf::notequal<tf::miaobyte, T, bool>(A, B, 1e-6f, M); break;
+    case OP_LT: tf::less<tf::miaobyte, T, bool>(A, B, M); break;
+    case OP_GT: tf::greater<tf::miaobyte, T, bool>(A, B, M); break;
+    }
+    dump_out(op, M);
+}
+
+// A cmp scalar -> bool mask。
+template <typename T>
+void do_cmps(void *kv, int id, const std::string &op, const View &va, double sv,
+             const std::string &out) {
+    auto A = borrow<T>(va.body(), va.dims());
+    auto M = alloc_out<bool>(kv, out, with_kind(va.kindexpr, "bool"), va.dims());
+    T v = (T)sv;
+    switch (id) {
+    case OP_EQS: tf::equalscalar<tf::miaobyte, T, bool>(A, v, 1e-6f, M); break;
+    case OP_NES: tf::notequalscalar<tf::miaobyte, T, bool>(A, v, 1e-6f, M); break;
+    case OP_LTS: tf::lessscalar<tf::miaobyte, T, bool>(A, v, M); break;
+    case OP_GTS: tf::greaterscalar<tf::miaobyte, T, bool>(A, v, M); break;
+    }
+    dump_out(op, M);
+}
+
+#define DISPATCH_T(k, CALL)                                                                      \
+    do {                                                                                           \
+        if ((k) == "float64") CALL(double);                                                        \
+        else if ((k) == "float32") CALL(float);                                                    \
+        else if ((k) == "int64") CALL(int64_t);                                                     \
+        else if ((k) == "int32") CALL(int32_t);                                                     \
+        else fprintf(stderr, "deepx-cpu: %s 不支持 dtype %s\n", cap.op, (k).c_str());              \
+    } while (0)
+
+void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
+    std::string op = cap.op;
     std::string out = take(kvlang_rwirextResolveWrite(kv, pc.c_str(), 0));
-    View va = read_view(kv, p0), vb = read_view(kv, p1);
-    if (!va.found || !vb.found || out.empty()) {
-        fprintf(stderr, "deepx-cpu: %s 缺参 @ %s\n", op.c_str(), pc.c_str());
+    if (out.empty()) {
+        fprintf(stderr, "deepx-cpu: %s 缺写参 @ %s\n", op.c_str(), pc.c_str());
+        return;
+    }
+    if (cap.form == F_RSCALAR) { // 标量在前、张量在读参 1
+        double sv = read_scalar(kv, pc, 0);
+        View vb = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
+        if (!vb.found) {
+            fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
+            return;
+        }
+        std::string k = kind_of(vb.kindexpr);
+#define C(T) do_rscalar<T>(kv, cap.id, op, sv, vb, out)
+        DISPATCH_T(k, C);
+#undef C
+        return;
+    }
+    // 其余形态：主张量在读参 0
+    View va = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 0)));
+    if (!va.found) {
+        fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
         return;
     }
     std::string k = kind_of(va.kindexpr);
-    if (k == "float64")
-        binary<double>(kv, id, op, va, vb, out);
-    else if (k == "float32")
-        binary<float>(kv, id, op, va, vb, out);
-    else if (k == "int64")
-        binary<int64_t>(kv, id, op, va, vb, out);
-    else if (k == "int32")
-        binary<int32_t>(kv, id, op, va, vb, out);
-    else
-        fprintf(stderr, "deepx-cpu: %s 不支持 dtype %s\n", op.c_str(), k.c_str());
+    if (cap.form == F_BINARY || cap.form == F_CMP) {
+        View vb = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
+        if (!vb.found) {
+            fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
+            return;
+        }
+        if (cap.form == F_BINARY) {
+#define C(T) do_binary<T>(kv, cap.id, op, va, vb, out)
+            DISPATCH_T(k, C);
+#undef C
+        } else {
+#define C(T) do_cmp<T>(kv, cap.id, op, va, vb, out)
+            DISPATCH_T(k, C);
+#undef C
+        }
+    } else if (cap.form == F_SCALAR || cap.form == F_CMPS) {
+        double sv = read_scalar(kv, pc, 1);
+        if (cap.form == F_SCALAR) {
+#define C(T) do_scalar<T>(kv, cap.id, op, va, sv, out)
+            DISPATCH_T(k, C);
+#undef C
+        } else {
+#define C(T) do_cmps<T>(kv, cap.id, op, va, sv, out)
+            DISPATCH_T(k, C);
+#undef C
+        }
+    } else { // F_UNARY
+#define C(T) do_unary<T>(kv, cap.id, op, va, out)
+        DISPATCH_T(k, C);
+#undef C
+    }
 }
 
 // 从 pc 续跑 vid 到结束：就地批处理 tensor.*，非本 caps 的扩展 rwir handoff，其余写回 pc。
@@ -177,12 +388,12 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
         for (;;) {
             std::string params = take(kvlang_rwirextParams(kv, c.c_str()));
             std::string op = params.substr(0, params.find('\n'));
-            int id = myrwircaps_id(op);
-            if (id < 0) {
+            const MyRwirCap *cap = myrwircaps_find(op);
+            if (!cap) {
                 stop_op = op;
                 break;
             }
-            dispatch(kv, op, id, c);
+            dispatch(kv, *cap, c);
             c = take(kvlang_rwirextNextPc(c.c_str()));
         }
         // pc 可能属子 vthread：目标 vid 由 pc 第 3 段导出。
@@ -195,7 +406,7 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
                     sub = c.substr(a + 1, b - a - 1);
             }
         }
-        if (!stop_op.empty() && myrwircaps_id(stop_op) >= 0) {
+        if (!stop_op.empty() && myrwircaps_find(stop_op)) {
             if (kvlang_rwirextHandoff(kv, sub.c_str(), c.c_str()) != 0) {
                 fprintf(stderr, "deepx-cpu: handoff %s 失败 @ %s\n", stop_op.c_str(), c.c_str());
                 exit(1);
@@ -222,7 +433,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     void *kv = kvlangRuntimeKvspaceHandle(rt); // 复用同一句柄（durable 惰性 flush 只同句柄相干）
-    register_caps(kv);
+    kvlangRuntimeRegisterNativeCaps(rt);       // 继承 runtime-c 内建标量算术/比较/控制流/字符串能力
+    register_myrwircaps(kv);                   // 再叠加自身 deepx/miaobyte·* tensor 算子表
 
     // <file.kv>：layout 进 kvspace，入口取 layout 产物；否则 arg 即已入库入口。
     if (arg.size() > 3 && arg.compare(arg.size() - 3, 3, ".kv") == 0) {

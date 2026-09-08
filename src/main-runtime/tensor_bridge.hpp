@@ -26,6 +26,16 @@ inline std::string kind_of(const std::string &kindexpr) {
     return kindexpr;
 }
 
+// 把 kindexpr（如 "[2,3]float32"）的 dtype 换成 kind，保留 [dims] 前缀（如 → "[2,3]bool"）。
+inline std::string with_kind(const std::string &kindexpr, const std::string &kind) {
+    if (!kindexpr.empty() && kindexpr[0] == '[') {
+        auto e = kindexpr.find(']');
+        if (e != std::string::npos)
+            return kindexpr.substr(0, e + 1) + kind;
+    }
+    return kind;
+}
+
 inline int elem_size(const std::string &kind) {
     if (kind == "float64" || kind == "int64" || kind == "uint64")
         return 8;

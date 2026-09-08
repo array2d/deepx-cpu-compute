@@ -1,0 +1,14 @@
+// CPU tensor 比较：equal/notequal/less/greater 及 scalar 变体，输出 bool mask
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/03-compare.kv
+rwfunc test() -> () {
+	a:[]float64 = [1.0, 2.0, 3.0, 4.0]
+	b:[]float64 = [1.0, 5.0, 3.0, 0.0]
+	deepx/miaobyte·equal(a, b) -> c1     // 1 0 1 0
+	deepx/miaobyte·notequal(a, b) -> c2  // 0 1 0 1
+	deepx/miaobyte·less(a, b) -> c3      // 0 1 0 0
+	deepx/miaobyte·greater(a, b) -> c4   // 0 0 0 1
+	deepx/miaobyte·equalscalar(a, 3.0) -> c5    // 0 0 1 0
+	deepx/miaobyte·notequalscalar(a, 3.0) -> c6 // 1 1 0 1
+	deepx/miaobyte·lessscalar(a, 3.0) -> c7     // 1 1 0 0
+	deepx/miaobyte·greaterscalar(a, 3.0) -> c8  // 0 0 0 1
+}

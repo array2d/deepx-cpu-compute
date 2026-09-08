@@ -1,0 +1,29 @@
+// CPU tensor 元素级扩展：二元 pow/max/min、标量变体、r-标量变体、一元函数
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/02-elementwise-more.kv
+rwfunc test() -> () {
+	a:[]float64 = [1.0, 2.0, 3.0, 4.0]
+	b:[]float64 = [4.0, 3.0, 2.0, 1.0]
+	// 二元
+	deepx/miaobyte·pow(a, b) -> p1    // 1 8 9 4
+	deepx/miaobyte·max(a, b) -> p2    // 4 3 3 4
+	deepx/miaobyte·min(a, b) -> p3    // 1 2 2 1
+	// 标量（张量, 标量）
+	deepx/miaobyte·addscalar(a, 10.0) -> s1   // 11 12 13 14
+	deepx/miaobyte·subscalar(a, 1.0) -> s2    // 0 1 2 3
+	deepx/miaobyte·mulscalar(a, 2.0) -> s3    // 2 4 6 8
+	deepx/miaobyte·divscalar(a, 2.0) -> s4    // 0.5 1 1.5 2
+	deepx/miaobyte·powscalar(a, 2.0) -> s5    // 1 4 9 16
+	deepx/miaobyte·maxscalar(a, 2.5) -> s6    // 2.5 2.5 3 4
+	deepx/miaobyte·minscalar(a, 2.5) -> s7    // 1 2 2.5 2.5
+	// r-标量（标量, 张量）
+	deepx/miaobyte·rsubscalar(10.0, a) -> r1  // 9 8 7 6
+	deepx/miaobyte·rdivscalar(12.0, a) -> r2  // 12 6 4 3
+	deepx/miaobyte·rpowscalar(2.0, a) -> r3   // 2 4 8 16
+	// 一元
+	deepx/miaobyte·sqrt(a) -> u1              // 1 1.41421 1.73205 2
+	deepx/miaobyte·log(a) -> u2               // 0 0.693147 1.09861 1.38629
+	deepx/miaobyte·exp(b) -> u3               // 54.5982 20.0855 7.38906 2.71828
+	deepx/miaobyte·sin(a) -> u4               // 0.841471 0.909297 0.14112 -0.756802
+	deepx/miaobyte·cos(a) -> u5               // 0.540302 -0.416147 -0.989992 -0.653644
+	deepx/miaobyte·tan(a) -> u6               // 1.55741 -2.18504 -0.142547 1.15782
+}
