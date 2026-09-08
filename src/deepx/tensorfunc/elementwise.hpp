@@ -2,7 +2,7 @@
 #define DEEPX_TENSORFUNC_ELEMENTWISE_HPP
 
 #include "deepx/tensor.hpp"
-#include "stdutil/error.hpp"
+#include "deepx/stdutil/error.hpp"
 
 namespace deepx::tensorfunc
 {
@@ -216,6 +216,32 @@ namespace deepx::tensorfunc
     void log(const Tensor<T> &input, Tensor<T> &output)
     {
         logDispatcher<Author, T>::log(input, output);
+    }
+
+    template <typename Author, typename T>
+    struct negDispatcher
+    {
+        static void neg(const Tensor<T> &input, Tensor<T> &output) = delete;
+    };
+
+    // neg(A)=>C
+    template <typename Author, typename T>
+    void neg(const Tensor<T> &input, Tensor<T> &output)
+    {
+        negDispatcher<Author, T>::neg(input, output);
+    }
+
+    template <typename Author, typename T>
+    struct absDispatcher
+    {
+        static void abs(const Tensor<T> &input, Tensor<T> &output) = delete;
+    };
+
+    // abs(A)=>C
+    template <typename Author, typename T>
+    void abs(const Tensor<T> &input, Tensor<T> &output)
+    {
+        absDispatcher<Author, T>::abs(input, output);
     }
 
     template <typename Author, typename T>

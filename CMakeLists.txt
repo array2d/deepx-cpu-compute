@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15...3.29)
 project(deepx-cpu-compute LANGUAGES CXX )
 
 # 设置 C++ 标准
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 # 设置编译优化
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
@@ -11,10 +11,6 @@ set(CMAKE_BUILD_TYPE Debug)
 
 # 包含头文件目录
 include_directories(src)
-
-if(NOT TARGET deepx_core)
-    add_subdirectory(deepx-core deepx-core)
-endif()
 
 # cpu 线性代数库
 list(APPEND CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/openblas-pthread/cmake")
@@ -62,12 +58,12 @@ endif()
 # 故不依赖 jemalloc；序列化走 kvspace，不依赖 yaml-cpp/nlohmann-json。
 # 第三方依赖仅保留：OpenBLAS（cblas）、Highway（SIMD）、OpenMP（并行）。
 
-# 纯模板头文件库（计算 kernel 实现）
-add_library(deepx_cpu INTERFACE)
-target_include_directories(deepx_cpu INTERFACE src)
+# deepx CPU 计算库：核心 tensor/shape/stdutil 源 + 模板 kernel，统一单库（原 deepx-core 已并入 src/deepx）
+file(GLOB_RECURSE DEEPX_CORE_SOURCES "src/deepx/*.cpp")
+add_library(deepx_cpu STATIC ${DEEPX_CORE_SOURCES})
+target_include_directories(deepx_cpu PUBLIC src)
 target_link_libraries( deepx_cpu
-    INTERFACE
-    deepx_core
+    PUBLIC
     ${OpenBLAS_LIBRARIES}
     OpenMP::OpenMP_CXX
     hwy::hwy

@@ -6,7 +6,7 @@
 
 #include "deepx/precision.hpp"
 #include "deepx/shape.hpp"
-#include "stdutil/vector.hpp"
+#include "deepx/stdutil/vector.hpp"
 namespace stdutil
 {
     using namespace deepx;

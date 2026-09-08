@@ -8,7 +8,7 @@
 #include <utility>
 #include <stdexcept>
 
-#include "stdutil/fs.hpp"
+#include "deepx/stdutil/fs.hpp"
 #include "deepx/precision.hpp"
 
 namespace deepx

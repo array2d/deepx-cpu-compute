@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include "deepx/tensor.hpp"
 #include "deepx/shape.hpp"
-#include "stdutil/error.hpp"
+#include "deepx/stdutil/error.hpp"
 
 namespace deepx
 {

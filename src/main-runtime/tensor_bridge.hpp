@@ -36,6 +36,19 @@ inline std::string with_kind(const std::string &kindexpr, const std::string &kin
     return kind;
 }
 
+// 由 dims + dtype 名拼 kindexpr（如 {2,3},"float32" → "[2,3]float32"）；输出形状与输入不同的算子（matmul/reduce/reshape）用。
+inline std::string make_kindexpr(const std::vector<int> &dims, const std::string &kind) {
+    std::string s = "[";
+    for (size_t i = 0; i < dims.size(); i++) {
+        if (i)
+            s += ",";
+        s += std::to_string(dims[i]);
+    }
+    s += "]";
+    s += kind;
+    return s;
+}
+
 inline int elem_size(const std::string &kind) {
     if (kind == "float64" || kind == "int64" || kind == "uint64")
         return 8;

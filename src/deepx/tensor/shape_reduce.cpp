@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "stdutil/error.hpp"
+#include "deepx/stdutil/error.hpp"
 #include "deepx/shape_reduce.hpp"
 
 namespace deepx

@@ -3,8 +3,8 @@
 
 #include <cstdint>
 
-#include "stdutil/string.hpp"
-#include "stdutil/num.hpp"
+#include "deepx/stdutil/string.hpp"
+#include "deepx/stdutil/num.hpp"
 
 #include "deepx/data_category.hpp"
 #include "deepx/precision.hpp"

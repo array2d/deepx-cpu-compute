@@ -2,7 +2,7 @@
 #define DEEPX_TENSORFUNC_IO_HPP
 
 #include "deepx/tensor.hpp"
-#include "stdutil/fs.hpp"
+#include "deepx/stdutil/fs.hpp"
 
 namespace deepx::tensorfunc{
     

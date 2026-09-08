@@ -3,7 +3,7 @@
 
 #include <vector>
 #include "deepx/tensor.hpp"
-#include "stdutil/error.hpp"
+#include "deepx/stdutil/error.hpp"
 
 namespace deepx::tensorfunc
 {

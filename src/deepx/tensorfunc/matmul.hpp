@@ -3,7 +3,7 @@
 
 #include "deepx/tensor.hpp"
 #include "authors.hpp"
-#include "stdutil/error.hpp"
+#include "deepx/stdutil/error.hpp"
 namespace deepx::tensorfunc
 {
     bool check_matmul_shape(const Shape &a, const Shape &b)

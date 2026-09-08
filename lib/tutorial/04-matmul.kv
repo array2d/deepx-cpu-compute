@@ -1,0 +1,8 @@
+// CPU 矩阵乘（myrwircaps: deepx/miaobyte·matmul、deepx/cblas·matmul）
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/04-matmul.kv
+rwfunc test() -> () {
+	a:[2,2]float64 = [1.0, 2.0, 3.0, 4.0]
+	b:[2,2]float64 = [5.0, 6.0, 7.0, 8.0]
+	deepx/miaobyte·matmul(a, b) -> m1
+	deepx/cblas·matmul(a, b) -> m2
+}

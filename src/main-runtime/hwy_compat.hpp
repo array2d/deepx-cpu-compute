@@ -12,5 +12,15 @@ template <class D>
 HWY_INLINE bool IsAligned(D d, const TFromD<D> *p) {
     return reinterpret_cast<uintptr_t>(p) % (Lanes(d) * sizeof(TFromD<D>)) == 0;
 }
+// reduce_miaobyte 用标量返回的 ReduceMax/ReduceMin，本 highway 目标未提供（仅 ReduceSum 全覆盖）；
+// 经全覆盖的 MaxOfLanes/MinOfLanes + GetLane 等价补齐。
+template <class D, class V>
+HWY_INLINE TFromD<D> ReduceMax(D d, V v) {
+    return GetLane(MaxOfLanes(d, v));
+}
+template <class D, class V>
+HWY_INLINE TFromD<D> ReduceMin(D d, V v) {
+    return GetLane(MinOfLanes(d, v));
+}
 } // namespace HWY_NAMESPACE
 } // namespace hwy

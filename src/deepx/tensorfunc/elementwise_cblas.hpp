@@ -4,9 +4,9 @@
 #include "cblas.h"
 
 #include "deepx/tensor.hpp"
-#include "stdutil/error.hpp"
-#include "tensorfunc/elementwise.hpp"
-#include "tensorfunc/authors.hpp"
+#include "deepx/stdutil/error.hpp"
+#include "deepx/tensorfunc/elementwise.hpp"
+#include "deepx/tensorfunc/authors.hpp"
 namespace deepx::tensorfunc
 {
 

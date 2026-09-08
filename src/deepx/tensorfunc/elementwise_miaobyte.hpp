@@ -6,8 +6,8 @@
 #include <cmath>
 #include <hwy/highway.h>
 #include "deepx/tensor.hpp"
-#include "tensorfunc/elementwise.hpp"
-#include "tensorfunc/authors.hpp"
+#include "deepx/tensorfunc/elementwise.hpp"
+#include "deepx/tensorfunc/authors.hpp"
 #include "deepx/thread/parallel.hpp"
 
 namespace deepx::tensorfunc
@@ -426,6 +426,58 @@ namespace deepx::tensorfunc
             {
                 throw std::invalid_argument("shape mismatch");
             }
+        }
+    };
+
+    template <typename T>
+    struct negDispatcher<miaobyte, T>
+    {
+        static void neg(const Tensor<T> &input, Tensor<T> &output)
+        {
+            if (!(input.shape == output.shape))
+                throw std::invalid_argument("shape mismatch");
+            rangeElementwiseParallel(output.shape, [&input, &output](int i, int i_end)
+                                                  {
+                const ScalableTag<T> tag;
+                const size_t lanes = Lanes(tag);
+                size_t j = 0;
+                while (j < i_end && !IsAligned(tag, input.data + i + j)) {
+                    output.data[i + j] = -input.data[i + j];
+                    ++j;
+                }
+                size_t aligned_end = i_end - (i_end % lanes);
+                for (; j + lanes <= aligned_end; j += lanes) {
+                    Store(Neg(Load(tag, input.data + i + j)), tag, output.data + i + j);
+                }
+                for (; j < i_end; j++) {
+                    output.data[i + j] = -input.data[i + j];
+                } });
+        }
+    };
+
+    template <typename T>
+    struct absDispatcher<miaobyte, T>
+    {
+        static void abs(const Tensor<T> &input, Tensor<T> &output)
+        {
+            if (!(input.shape == output.shape))
+                throw std::invalid_argument("shape mismatch");
+            rangeElementwiseParallel(output.shape, [&input, &output](int i, int i_end)
+                                                  {
+                const ScalableTag<T> tag;
+                const size_t lanes = Lanes(tag);
+                size_t j = 0;
+                while (j < i_end && !IsAligned(tag, input.data + i + j)) {
+                    output.data[i + j] = std::abs(input.data[i + j]);
+                    ++j;
+                }
+                size_t aligned_end = i_end - (i_end % lanes);
+                for (; j + lanes <= aligned_end; j += lanes) {
+                    Store(Abs(Load(tag, input.data + i + j)), tag, output.data + i + j);
+                }
+                for (; j < i_end; j++) {
+                    output.data[i + j] = std::abs(input.data[i + j]);
+                } });
         }
     };
 
