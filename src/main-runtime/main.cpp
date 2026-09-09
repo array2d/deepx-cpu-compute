@@ -170,24 +170,24 @@ const MyRwirCap *myrwircaps_find(const std::string &op) {
 
 void register_myrwircaps(void *kv) {
     for (const MyRwirCap &c : myrwircaps)
-        kvlang_rwirextRegister(kv, c.op, c.nr, c.nw, c.sig);
+        kvlangRwirextRegister(kv, c.op, c.nr, c.nw, c.sig);
 }
 
 // 读参 idx 解析为标量（内联字面量或帧槽值）。
 double read_scalar(void *kv, const std::string &pc, int idx) {
-    std::string s = take(kvlang_rwirextResolveRead(kv, pc.c_str(), idx));
+    std::string s = take(kvlangRwirextResolveRead(kv, pc.c_str(), idx));
     return s.empty() ? 0.0 : strtod(s.c_str(), nullptr);
 }
 
 // 读参 idx 解析为 bool（true/1 为真）。
 bool read_bool(void *kv, const std::string &pc, int idx) {
-    std::string s = take(kvlang_rwirextResolveRead(kv, pc.c_str(), idx));
+    std::string s = take(kvlangRwirextResolveRead(kv, pc.c_str(), idx));
     return s == "true" || (!s.empty() && strtod(s.c_str(), nullptr) != 0.0);
 }
 
 // 读参 idx（整型数组，如 dims/new_shape/dim_order）借用整块 → vector<int>。
 std::vector<int> read_int_vec(void *kv, const std::string &pc, int idx) {
-    View v = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), idx)));
+    View v = read_view(kv, take(kvlangRwirextResolveReadPath(kv, pc.c_str(), idx)));
     std::vector<int> out;
     if (!v.found)
         return out;
@@ -436,14 +436,14 @@ void do_cmps(void *kv, int id, const std::string &op, const View &va, double sv,
 
 void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
     std::string op = cap.op;
-    std::string out = take(kvlang_rwirextResolveWrite(kv, pc.c_str(), 0));
+    std::string out = take(kvlangRwirextResolveWrite(kv, pc.c_str(), 0));
     if (out.empty()) {
         fprintf(stderr, "deepx-cpu: %s 缺写参 @ %s\n", op.c_str(), pc.c_str());
         return;
     }
     if (cap.form == F_RSCALAR) { // 标量在前、张量在读参 1
         double sv = read_scalar(kv, pc, 0);
-        View vb = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
+        View vb = read_view(kv, take(kvlangRwirextResolveReadPath(kv, pc.c_str(), 1)));
         if (!vb.found) {
             fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
             return;
@@ -456,7 +456,7 @@ void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
     }
     if (cap.form == F_INIT) { // 读参 0 = 形状 []int64；后续标量为算子参；dtype 取自值参的声明类型
         std::vector<int> dims = read_int_vec(kv, pc, 0);
-        View vv = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
+        View vv = read_view(kv, take(kvlangRwirextResolveReadPath(kv, pc.c_str(), 1)));
         std::string k = vv.found ? kind_of(vv.langtype) : "float64";
         std::string ke = make_langtype(dims, k);
         double p0 = read_scalar(kv, pc, 1);
@@ -472,14 +472,14 @@ void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
         return;
     }
     // 其余形态：主张量在读参 0
-    View va = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 0)));
+    View va = read_view(kv, take(kvlangRwirextResolveReadPath(kv, pc.c_str(), 0)));
     if (!va.found) {
         fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
         return;
     }
     std::string k = kind_of(va.langtype);
     if (cap.form == F_BINARY || cap.form == F_CMP || cap.form == F_MATMUL) {
-        View vb = read_view(kv, take(kvlang_rwirextResolveReadPath(kv, pc.c_str(), 1)));
+        View vb = read_view(kv, take(kvlangRwirextResolveReadPath(kv, pc.c_str(), 1)));
         if (!vb.found) {
             fprintf(stderr, "deepx-cpu: %s 缺张量参 @ %s\n", op.c_str(), pc.c_str());
             return;
@@ -544,7 +544,7 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
         }
         std::string c = take(pc_out), stop_op;
         for (;;) {
-            std::string params = take(kvlang_rwirextParams(kv, c.c_str()));
+            std::string params = take(kvlangRwirextParams(kv, c.c_str()));
             std::string op = params.substr(0, params.find('\n'));
             const MyRwirCap *cap = myrwircaps_find(op);
             if (!cap) {
@@ -552,7 +552,7 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
                 break;
             }
             dispatch(kv, *cap, c);
-            c = take(kvlang_rwirextNextPc(c.c_str()));
+            c = take(kvlangRwirextNextPc(c.c_str()));
         }
         // pc 可能属子 vthread：目标 vid 由 pc 第 3 段导出。
         std::string sub = vid;
@@ -565,7 +565,7 @@ void drive_vid(kvlangRuntime_t *rt, void *kv, const std::string &vid) {
             }
         }
         if (!stop_op.empty() && myrwircaps_find(stop_op)) {
-            if (kvlang_rwirextHandoff(kv, sub.c_str(), c.c_str()) != 0) {
+            if (kvlangRwirextHandoff(kv, sub.c_str(), c.c_str()) != 0) {
                 fprintf(stderr, "deepx-cpu: handoff %s 失败 @ %s\n", stop_op.c_str(), c.c_str());
                 exit(1);
             }
