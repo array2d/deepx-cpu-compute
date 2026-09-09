@@ -91,6 +91,23 @@ void set_str(void *kv, const std::string &key, const std::string &val) {
 // 执行时以 opcode 查表得 (id, form)，按 form 取参、按 id 派发到对应 deepx-core kernel。
 // form 决定实参形态：BINARY=A,B→C；SCALAR=A,标量→C；RSCALAR=标量,A→C（标量在前）；UNARY=A→C；
 // CMP=A,B→bool mask；CMPS=A,标量→bool mask。
+//
+// sig 是每槽 def langtype（读参在前、写参在后，共 nr+nw 段，'\n' 分隔），注册进 /lib/<opcode>
+// 供编译器绑定与派发。**禁 any**（对齐前端 nn.kv 铁律）：dtype 用 '|' 联合本 kernel 真正支持的
+// 具体 kind，每并集原子各带自身形状；形状用轴量词（. 恰一轴；+ 一轴或多轴；* 任意秩；[.,+] 秩≥2）。
+// dtype 约束与下方各 do_* 实现严格一致：全数值 kernel 覆盖 float32/float64/int32/int64，
+// 仅浮点 kernel（div/pow/超越/cblas）只列 float32/float64。输出形状随数据故用 [*]（不参与匹配）。
+#define TNUM "[+]float32|[+]float64|[+]int32|[+]int64" // 数值张量，秩≥1
+#define TFLT "[+]float32|[+]float64"                   // 浮点张量，秩≥1
+#define MNUM "[.,+]float32|[.,+]float64|[.,+]int32|[.,+]int64" // 数值矩阵，秩≥2
+#define MFLT "[.,+]float32|[.,+]float64"               // 浮点矩阵，秩≥2
+#define ONUM "[*]float32|[*]float64|[*]int32|[*]int64" // 数值输出，任意秩
+#define OFLT "[*]float32|[*]float64"                   // 浮点输出，任意秩
+#define SCAL "float32|float64|int32|int64"             // 数值标量，ndim0
+#define AXES "int64|[.]int64"                          // 轴/形状/维序：单轴 int64 或一维 int64 序列
+                                                       // （单元素 []int64 字面量落盘塌成标量 ndim0，故并入 int64）
+#define BSCA "bool"                                    // 标量 bool（keepdims）
+#define BMSK "[+]bool"                                 // bool 掩码，秩≥1
 enum Form { F_BINARY, F_SCALAR, F_RSCALAR, F_UNARY, F_CMP, F_CMPS, F_MATMUL, F_REDUCE, F_TRANSPOSE, F_EXPAND, F_INIT };
 enum OpId {
     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW, OP_MAX, OP_MIN,
@@ -112,52 +129,52 @@ struct MyRwirCap {
     const char *sig;
 };
 const MyRwirCap myrwircaps[] = {
-    {"deepx/miaobyte·add", OP_ADD, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·sub", OP_SUB, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·mul", OP_MUL, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·div", OP_DIV, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·pow", OP_POW, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·max", OP_MAX, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·min", OP_MIN, F_BINARY, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·addscalar", OP_ADDS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·subscalar", OP_SUBS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·mulscalar", OP_MULS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·divscalar", OP_DIVS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·powscalar", OP_POWS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·maxscalar", OP_MAXS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·minscalar", OP_MINS, F_SCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·rsubscalar", OP_RSUBS, F_RSCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·rdivscalar", OP_RDIVS, F_RSCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·rpowscalar", OP_RPOWS, F_RSCALAR, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·sqrt", OP_SQRT, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·log", OP_LOG, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·exp", OP_EXP, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·sin", OP_SIN, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·cos", OP_COS, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·tan", OP_TAN, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·neg", OP_NEG, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·abs", OP_ABS, F_UNARY, 1, 1, "any\nany"},
-    {"deepx/miaobyte·equal", OP_EQ, F_CMP, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·notequal", OP_NE, F_CMP, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·less", OP_LT, F_CMP, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·greater", OP_GT, F_CMP, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·equalscalar", OP_EQS, F_CMPS, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·notequalscalar", OP_NES, F_CMPS, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·lessscalar", OP_LTS, F_CMPS, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·greaterscalar", OP_GTS, F_CMPS, 2, 1, "any\nany\nbool"},
-    {"deepx/miaobyte·matmul", OP_MATMUL, F_MATMUL, 2, 1, "any\nany\nany"},
-    {"deepx/cblas·matmul", OP_MATMUL_CBLAS, F_MATMUL, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·sum", OP_SUM, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·prod", OP_PROD, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·reducemax", OP_RMAX, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·reducemin", OP_RMIN, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·argmax", OP_ARGMAX, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·argmin", OP_ARGMIN, F_REDUCE, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·transpose", OP_TRANSPOSE, F_TRANSPOSE, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·broadcastTo", OP_EXPAND, F_EXPAND, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·constant", OP_CONSTANT, F_INIT, 2, 1, "any\nany\nany"},
-    {"deepx/miaobyte·arange", OP_ARANGE, F_INIT, 3, 1, "any\nany\nany\nany"},
-    {"deepx/miaobyte·uniform", OP_UNIFORM, F_INIT, 4, 1, "any\nany\nany\nany\nany"},
+    {"deepx/miaobyte·add", OP_ADD, F_BINARY, 2, 1, TNUM "\n" TNUM "\n" ONUM},
+    {"deepx/miaobyte·sub", OP_SUB, F_BINARY, 2, 1, TNUM "\n" TNUM "\n" ONUM},
+    {"deepx/miaobyte·mul", OP_MUL, F_BINARY, 2, 1, TNUM "\n" TNUM "\n" ONUM},
+    {"deepx/miaobyte·div", OP_DIV, F_BINARY, 2, 1, TFLT "\n" TFLT "\n" OFLT},
+    {"deepx/miaobyte·pow", OP_POW, F_BINARY, 2, 1, TFLT "\n" TFLT "\n" OFLT},
+    {"deepx/miaobyte·max", OP_MAX, F_BINARY, 2, 1, TNUM "\n" TNUM "\n" ONUM},
+    {"deepx/miaobyte·min", OP_MIN, F_BINARY, 2, 1, TNUM "\n" TNUM "\n" ONUM},
+    {"deepx/miaobyte·addscalar", OP_ADDS, F_SCALAR, 2, 1, TNUM "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·subscalar", OP_SUBS, F_SCALAR, 2, 1, TNUM "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·mulscalar", OP_MULS, F_SCALAR, 2, 1, TNUM "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·divscalar", OP_DIVS, F_SCALAR, 2, 1, TFLT "\n" SCAL "\n" OFLT},
+    {"deepx/miaobyte·powscalar", OP_POWS, F_SCALAR, 2, 1, TFLT "\n" SCAL "\n" OFLT},
+    {"deepx/miaobyte·maxscalar", OP_MAXS, F_SCALAR, 2, 1, TNUM "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·minscalar", OP_MINS, F_SCALAR, 2, 1, TNUM "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·rsubscalar", OP_RSUBS, F_RSCALAR, 2, 1, SCAL "\n" TNUM "\n" ONUM},
+    {"deepx/miaobyte·rdivscalar", OP_RDIVS, F_RSCALAR, 2, 1, SCAL "\n" TFLT "\n" OFLT},
+    {"deepx/miaobyte·rpowscalar", OP_RPOWS, F_RSCALAR, 2, 1, SCAL "\n" TFLT "\n" OFLT},
+    {"deepx/miaobyte·sqrt", OP_SQRT, F_UNARY, 1, 1, TNUM "\n" ONUM},
+    {"deepx/miaobyte·log", OP_LOG, F_UNARY, 1, 1, TFLT "\n" OFLT},
+    {"deepx/miaobyte·exp", OP_EXP, F_UNARY, 1, 1, TFLT "\n" OFLT},
+    {"deepx/miaobyte·sin", OP_SIN, F_UNARY, 1, 1, TFLT "\n" OFLT},
+    {"deepx/miaobyte·cos", OP_COS, F_UNARY, 1, 1, TFLT "\n" OFLT},
+    {"deepx/miaobyte·tan", OP_TAN, F_UNARY, 1, 1, TFLT "\n" OFLT},
+    {"deepx/miaobyte·neg", OP_NEG, F_UNARY, 1, 1, TNUM "\n" ONUM},
+    {"deepx/miaobyte·abs", OP_ABS, F_UNARY, 1, 1, TNUM "\n" ONUM},
+    {"deepx/miaobyte·equal", OP_EQ, F_CMP, 2, 1, TNUM "\n" TNUM "\n" BMSK},
+    {"deepx/miaobyte·notequal", OP_NE, F_CMP, 2, 1, TNUM "\n" TNUM "\n" BMSK},
+    {"deepx/miaobyte·less", OP_LT, F_CMP, 2, 1, TNUM "\n" TNUM "\n" BMSK},
+    {"deepx/miaobyte·greater", OP_GT, F_CMP, 2, 1, TNUM "\n" TNUM "\n" BMSK},
+    {"deepx/miaobyte·equalscalar", OP_EQS, F_CMPS, 2, 1, TNUM "\n" SCAL "\n" BMSK},
+    {"deepx/miaobyte·notequalscalar", OP_NES, F_CMPS, 2, 1, TNUM "\n" SCAL "\n" BMSK},
+    {"deepx/miaobyte·lessscalar", OP_LTS, F_CMPS, 2, 1, TNUM "\n" SCAL "\n" BMSK},
+    {"deepx/miaobyte·greaterscalar", OP_GTS, F_CMPS, 2, 1, TNUM "\n" SCAL "\n" BMSK},
+    {"deepx/miaobyte·matmul", OP_MATMUL, F_MATMUL, 2, 1, MNUM "\n" MNUM "\n" ONUM},
+    {"deepx/cblas·matmul", OP_MATMUL_CBLAS, F_MATMUL, 2, 1, MFLT "\n" MFLT "\n" OFLT},
+    {"deepx/miaobyte·sum", OP_SUM, F_REDUCE, 3, 1, TNUM "\n" AXES "\n" BSCA "\n" ONUM},
+    {"deepx/miaobyte·prod", OP_PROD, F_REDUCE, 3, 1, TNUM "\n" AXES "\n" BSCA "\n" ONUM},
+    {"deepx/miaobyte·reducemax", OP_RMAX, F_REDUCE, 3, 1, TNUM "\n" AXES "\n" BSCA "\n" ONUM},
+    {"deepx/miaobyte·reducemin", OP_RMIN, F_REDUCE, 3, 1, TNUM "\n" AXES "\n" BSCA "\n" ONUM},
+    {"deepx/miaobyte·argmax", OP_ARGMAX, F_REDUCE, 3, 1, TNUM "\n" AXES "\n" BSCA "\n" ONUM},
+    {"deepx/miaobyte·argmin", OP_ARGMIN, F_REDUCE, 3, 1, TNUM "\n" AXES "\n" BSCA "\n" ONUM},
+    {"deepx/miaobyte·transpose", OP_TRANSPOSE, F_TRANSPOSE, 2, 1, TNUM "\n" AXES "\n" ONUM},
+    {"deepx/miaobyte·broadcastTo", OP_EXPAND, F_EXPAND, 2, 1, TNUM "\n" AXES "\n" ONUM},
+    {"deepx/miaobyte·constant", OP_CONSTANT, F_INIT, 2, 1, AXES "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·arange", OP_ARANGE, F_INIT, 3, 1, AXES "\n" SCAL "\n" SCAL "\n" ONUM},
+    {"deepx/miaobyte·uniform", OP_UNIFORM, F_INIT, 4, 1, AXES "\n" SCAL "\n" SCAL "\n" SCAL "\n" ONUM},
 };
 
 // 命中返 cap 指针，未命中返 nullptr。
