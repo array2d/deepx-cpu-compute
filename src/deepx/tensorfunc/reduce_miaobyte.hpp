@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <stdexcept>
+#include <limits>
 #include <hwy/highway.h>
 
 #include "deepx/tensorfunc/highway.hpp"
@@ -16,6 +17,54 @@ namespace deepx::tensorfunc
 {
     using namespace hwy::HWY_NAMESPACE;
     using namespace deepx::thread;
+
+    // argmax/argmin：输出沿被约减轴（按被约减轴 row-major 展平）的下标，存为 T。
+    // 串行遍历（下标追踪无法用 SIMD/atomic 值路径），约减轴小（如 10 类）时开销可忽略。
+    template <typename T>
+    struct argmaxDispatcher<miaobyte, T>
+    {
+        static void argmax(const Tensor<T> &tensor, const std::vector<int> &dims, const bool keepdims, Tensor<T> &result)
+        {
+            std::vector<int> checkeddims = checkedDims(tensor.shape.shape, dims);
+            std::vector<int> reduced_dims = reducedDim(tensor.shape.shape, checkeddims);
+            std::vector<T> best(result.shape.size, std::numeric_limits<T>::lowest());
+            constant<miaobyte, T>(result, T(0));
+            tensor.shape.range(tensor.shape.dim(), [&](const int idx_linear, const std::vector<int> &indices) {
+                std::vector<int> outidx;
+                int redoff = 0;
+                for (size_t i = 0; i < tensor.shape.dim(); ++i) {
+                    if (reduced_dims[i] == 0) outidx.push_back(indices[i]);
+                    else { redoff = redoff * tensor.shape[i] + indices[i]; if (keepdims) outidx.push_back(0); }
+                }
+                int outputIdx = result.shape.linearat(outidx);
+                T v = tensor.data[idx_linear];
+                if (v > best[outputIdx]) { best[outputIdx] = v; result.data[outputIdx] = (T)redoff; }
+            });
+        }
+    };
+
+    template <typename T>
+    struct argminDispatcher<miaobyte, T>
+    {
+        static void argmin(const Tensor<T> &tensor, const std::vector<int> &dims, const bool keepdims, Tensor<T> &result)
+        {
+            std::vector<int> checkeddims = checkedDims(tensor.shape.shape, dims);
+            std::vector<int> reduced_dims = reducedDim(tensor.shape.shape, checkeddims);
+            std::vector<T> best(result.shape.size, std::numeric_limits<T>::max());
+            constant<miaobyte, T>(result, T(0));
+            tensor.shape.range(tensor.shape.dim(), [&](const int idx_linear, const std::vector<int> &indices) {
+                std::vector<int> outidx;
+                int redoff = 0;
+                for (size_t i = 0; i < tensor.shape.dim(); ++i) {
+                    if (reduced_dims[i] == 0) outidx.push_back(indices[i]);
+                    else { redoff = redoff * tensor.shape[i] + indices[i]; if (keepdims) outidx.push_back(0); }
+                }
+                int outputIdx = result.shape.linearat(outidx);
+                T v = tensor.data[idx_linear];
+                if (v < best[outputIdx]) { best[outputIdx] = v; result.data[outputIdx] = (T)redoff; }
+            });
+        }
+    };
 
     // sum author=miaobyte
     template <typename T>

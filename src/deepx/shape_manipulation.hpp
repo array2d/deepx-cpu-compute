@@ -1,5 +1,5 @@
-#ifndef DEEPX_SHAPE_CHANGESHAPE_HPP
-#define DEEPX_SHAPE_CHANGESHAPE_HPP
+#ifndef DEEPX_SHAPE_MANIPULATION_HPP
+#define DEEPX_SHAPE_MANIPULATION_HPP
 
 #include <vector>
 #include <numeric>
@@ -77,4 +77,4 @@ namespace deepx
     //repeat
     std::vector<int> repeatShape(const std::vector<int> &src, const std::vector<int> &repeats);
 }
-#endif // DEEPX_SHAPE_CHANGESHAPE_HPP
+#endif // DEEPX_SHAPE_MANIPULATION_HPP

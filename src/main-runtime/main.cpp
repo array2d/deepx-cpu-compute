@@ -22,12 +22,12 @@ extern "C" { // kvlang 头为纯 C，无 extern "C" 守卫，C++ 下须显式包
 #include "deepx/tensor.hpp"
 #include "deepx/shape_matmul.hpp"
 #include "deepx/shape_reduce.hpp"
-#include "deepx/shape_changeshape.hpp"
+#include "deepx/shape_manipulation.hpp"
 #include "deepx/tensorfunc/elementwise_miaobyte.hpp"
 #include "deepx/tensorfunc/matmul_miaobyte.hpp"
 #include "deepx/tensorfunc/matmul_cblas.hpp"
 #include "deepx/tensorfunc/reduce_miaobyte.hpp"
-#include "deepx/tensorfunc/changeshape_miaobyte.hpp"
+#include "deepx/tensorfunc/manipulation_miaobyte.hpp"
 #include "deepx/tensorfunc/init_miaobyte.hpp"
 
 #include "tensor_bridge.hpp"
@@ -91,7 +91,7 @@ void set_str(void *kv, const std::string &key, const std::string &val) {
 // 执行时以 opcode 查表得 (id, form)，按 form 取参、按 id 派发到对应 deepx-core kernel。
 // form 决定实参形态：BINARY=A,B→C；SCALAR=A,标量→C；RSCALAR=标量,A→C（标量在前）；UNARY=A→C；
 // CMP=A,B→bool mask；CMPS=A,标量→bool mask。
-enum Form { F_BINARY, F_SCALAR, F_RSCALAR, F_UNARY, F_CMP, F_CMPS, F_MATMUL, F_REDUCE, F_TRANSPOSE, F_INIT };
+enum Form { F_BINARY, F_SCALAR, F_RSCALAR, F_UNARY, F_CMP, F_CMPS, F_MATMUL, F_REDUCE, F_TRANSPOSE, F_EXPAND, F_INIT };
 enum OpId {
     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW, OP_MAX, OP_MIN,
     OP_ADDS, OP_SUBS, OP_MULS, OP_DIVS, OP_POWS, OP_MAXS, OP_MINS,
@@ -100,8 +100,8 @@ enum OpId {
     OP_EQ, OP_NE, OP_LT, OP_GT,
     OP_EQS, OP_NES, OP_LTS, OP_GTS,
     OP_MATMUL, OP_MATMUL_CBLAS,
-    OP_SUM, OP_PROD, OP_RMAX, OP_RMIN,
-    OP_TRANSPOSE,
+    OP_SUM, OP_PROD, OP_RMAX, OP_RMIN, OP_ARGMAX, OP_ARGMIN,
+    OP_TRANSPOSE, OP_EXPAND,
     OP_CONSTANT, OP_ARANGE, OP_UNIFORM,
 };
 struct MyRwirCap {
@@ -151,7 +151,10 @@ const MyRwirCap myrwircaps[] = {
     {"deepx/miaobyte·prod", OP_PROD, F_REDUCE, 3, 1, "any\nany\nany\nany"},
     {"deepx/miaobyte·reducemax", OP_RMAX, F_REDUCE, 3, 1, "any\nany\nany\nany"},
     {"deepx/miaobyte·reducemin", OP_RMIN, F_REDUCE, 3, 1, "any\nany\nany\nany"},
+    {"deepx/miaobyte·argmax", OP_ARGMAX, F_REDUCE, 3, 1, "any\nany\nany\nany"},
+    {"deepx/miaobyte·argmin", OP_ARGMIN, F_REDUCE, 3, 1, "any\nany\nany\nany"},
     {"deepx/miaobyte·transpose", OP_TRANSPOSE, F_TRANSPOSE, 2, 1, "any\nany\nany"},
+    {"deepx/miaobyte·broadcastTo", OP_EXPAND, F_EXPAND, 2, 1, "any\nany\nany"},
     {"deepx/miaobyte·constant", OP_CONSTANT, F_INIT, 2, 1, "any\nany\nany"},
     {"deepx/miaobyte·arange", OP_ARANGE, F_INIT, 3, 1, "any\nany\nany\nany"},
     {"deepx/miaobyte·uniform", OP_UNIFORM, F_INIT, 4, 1, "any\nany\nany\nany\nany"},
@@ -273,6 +276,8 @@ void do_reduce(void *kv, int id, const std::string &op, const View &va,
     case OP_PROD: tf::prod<tf::miaobyte, T>(A, dims, keepdims, B); break;
     case OP_RMAX: tf::reducemax<tf::miaobyte, T>(A, dims, keepdims, B); break;
     case OP_RMIN: tf::reducemin<tf::miaobyte, T>(A, dims, keepdims, B); break;
+    case OP_ARGMAX: tf::argmax<tf::miaobyte, T>(A, dims, keepdims, B); break;
+    case OP_ARGMIN: tf::argmin<tf::miaobyte, T>(A, dims, keepdims, B); break;
     }
     dump_out(op, B);
 }
@@ -285,6 +290,16 @@ void do_transpose(void *kv, const std::string &op, const View &va,
     std::vector<int> od = deepx::transposeShape(va.dims(), dim_order);
     auto B = alloc_out<T>(kv, out, make_langtype(od, kind_of(va.langtype)), od);
     tf::transpose<tf::miaobyte, T>(A, dim_order, B);
+    dump_out(op, B);
+}
+
+// broadcastTo(A, new_shape) -> B（把 A 广播到 new_shape；MNIST batch>1/softmax 归一所需）。
+template <typename T>
+void do_expand(void *kv, const std::string &op, const View &va,
+               const std::vector<int> &new_shape, const std::string &out) {
+    auto A = borrow<T>(va.body(), va.dims());
+    auto B = alloc_out<T>(kv, out, make_langtype(new_shape, kind_of(va.langtype)), new_shape);
+    tf::broadcastTo<tf::miaobyte, T>(A, new_shape, B);
     dump_out(op, B);
 }
 
@@ -502,6 +517,11 @@ void dispatch(void *kv, const MyRwirCap &cap, const std::string &pc) {
     } else if (cap.form == F_TRANSPOSE) {
         std::vector<int> dim_order = read_int_vec(kv, pc, 1);
 #define C(T) do_transpose<T>(kv, op, va, dim_order, out)
+        DISPATCH_T(k, C);
+#undef C
+    } else if (cap.form == F_EXPAND) {
+        std::vector<int> new_shape = read_int_vec(kv, pc, 1);
+#define C(T) do_expand<T>(kv, op, va, new_shape, out)
         DISPATCH_T(k, C);
 #undef C
     } else { // F_UNARY

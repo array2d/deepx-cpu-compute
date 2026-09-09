@@ -1,0 +1,14 @@
+// CPU argmax/argmin（myrwircaps: deepx/miaobyte·argmax、deepx/miaobyte·argmin）
+// 输出沿被约减轴的下标；MNIST 取预测类别所需。
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/08-argmax.kv
+// 期望：argmax->3  argmin->0  行向argmax->1 0
+rwfunc test() -> () {
+	v0:[]float64 = [1.0, 3.0, 2.0, 7.0, 4.0]
+	axis0:[]int64 = [0]
+	deepx/miaobyte·argmax(v0, axis0, false) -> vmax
+	deepx/miaobyte·argmin(v0, axis0, false) -> vmin
+	m0:[]float64 = [1.0, 9.0, 2.0, 8.0, 3.0, 5.0]
+	xv·reshape(m0, 2, 3) -> m
+	axis1:[]int64 = [1]
+	deepx/miaobyte·argmax(m, axis1, false) -> rmax
+}

@@ -1,0 +1,10 @@
+// CPU broadcastTo（myrwircaps: deepx/miaobyte·broadcastTo）
+// 把 A 广播到目标形状；MNIST batch>1 时 bias[K] 广播到 [N,K] 所需。
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/10-broadcast.kv
+// 期望：bc->10 20 30 10 20 30
+rwfunc test() -> () {
+	b0:[]float64 = [10.0, 20.0, 30.0]
+	xv·reshape(b0, 1, 3) -> b
+	shape:[]int64 = [2, 3]
+	deepx/miaobyte·broadcastTo(b, shape) -> bc
+}

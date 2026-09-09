@@ -1,0 +1,16 @@
+// 行向 softmax（batch=2）：证明概率输出也用现有算子闭合——exp→sum(keepdims)→broadcastTo→div。
+// logits[2,3]=[[1,2,3],[1,1,1]]；softmax 行归一。
+// 手算 row0: exp=[2.718,7.389,20.086] sum=30.193 -> [0.0900,0.2447,0.6652]
+//        row1: 全等 -> [0.3333,0.3333,0.3333]
+// 运行：DEEPX_DUMP=1 deepx-cpu-compute lib/tutorial/11-softmax.kv
+// 期望：sm-> 0.09.. 0.244.. 0.665..  0.333.. 0.333.. 0.333..
+rwfunc test() -> () {
+	l0:[]float64 = [1.0, 2.0, 3.0, 1.0, 1.0, 1.0]
+	xv·reshape(l0, 2, 3) -> logits
+	deepx/miaobyte·exp(logits) -> e
+	axis:[]int64 = [1]
+	deepx/miaobyte·sum(e, axis, true) -> s
+	shape:[]int64 = [2, 3]
+	deepx/miaobyte·broadcastTo(s, shape) -> sb
+	deepx/miaobyte·div(e, sb) -> sm
+}

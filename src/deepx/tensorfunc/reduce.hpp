@@ -32,6 +32,28 @@ namespace deepx::tensorfunc
     }
     
     template <typename Author, typename T>
+    struct argmaxDispatcher
+    {
+        static void argmax(const Tensor<T> &A, const std::vector<int> &dims,const bool keepdims,Tensor<T> &B) = delete;
+    };
+    template <typename Author, typename T>
+    void argmax(const Tensor<T> &A, const std::vector<int> &dims,const bool keepdims,Tensor<T> &B)
+    {
+        argmaxDispatcher<Author, T>::argmax(A, dims, keepdims, B);
+    }
+
+    template <typename Author, typename T>
+    struct argminDispatcher
+    {
+        static void argmin(const Tensor<T> &A, const std::vector<int> &dims,const bool keepdims,Tensor<T> &B) = delete;
+    };
+    template <typename Author, typename T>
+    void argmin(const Tensor<T> &A, const std::vector<int> &dims,const bool keepdims,Tensor<T> &B)
+    {
+        argminDispatcher<Author, T>::argmin(A, dims, keepdims, B);
+    }
+
+    template <typename Author, typename T>
     struct  sumDispatcher
     {
         static void  sum(const Tensor<T> &A, const std::vector<int> &dims,const bool keepdims,Tensor<T> &B) = delete;

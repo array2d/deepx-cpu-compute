@@ -1,12 +1,12 @@
-#ifndef DEEPX_TENSORFUNC_CHANGESHAPE_MIAOBYTE_HPP
-#define DEEPX_TENSORFUNC_CHANGESHAPE_MIAOBYTE_HPP
+#ifndef DEEPX_TENSORFUNC_MANIPULATION_MIAOBYTE_HPP
+#define DEEPX_TENSORFUNC_MANIPULATION_MIAOBYTE_HPP
 
 #include <stdexcept>
 #include <vector>
 
 #include "deepx/tensor.hpp"
-#include "deepx/shape_changeshape.hpp"
-#include "deepx/tensorfunc/changeshape.hpp"
+#include "deepx/shape_manipulation.hpp"
+#include "deepx/tensorfunc/manipulation.hpp"
 #include "deepx/tensorfunc/authors.hpp"
 #include "deepx/thread/parallel.hpp"
 namespace deepx::tensorfunc
@@ -257,4 +257,4 @@ namespace deepx::tensorfunc
     //     }
     // }
 }
-#endif // DEEPX_TENSORFUNC_CHANGESHAPE_MIAOBYTE_HPP
+#endif // DEEPX_TENSORFUNC_MANIPULATION_MIAOBYTE_HPP
