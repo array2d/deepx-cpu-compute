@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -186,8 +187,20 @@ const MyRwirCap *myrwircaps_find(const std::string &op) {
 }
 
 void register_myrwircaps(void *kv) {
-    for (const MyRwirCap &c : myrwircaps)
-        kvlangRwirextRegister(kv, c.op, c.nr, c.nw, c.sig);
+    for (const MyRwirCap &c : myrwircaps) {
+        std::vector<std::string> parts;
+        std::string s = c.sig, tok;
+        std::stringstream ss(s);
+        while (std::getline(ss, tok, '\n'))
+            parts.push_back(tok);
+        std::vector<const char *> rp, wp;
+        for (int i = 0; i < c.nr && i < (int)parts.size(); i++)
+            rp.push_back(parts[i].c_str());
+        for (int i = 0; i < c.nw && c.nr + i < (int)parts.size(); i++)
+            wp.push_back(parts[c.nr + i].c_str());
+        kvlangDefRwir(kv, c.op, rp.empty() ? nullptr : rp.data(), c.nr,
+                      wp.empty() ? nullptr : wp.data(), c.nw);
+    }
 }
 
 // 读参 idx 解析为标量（内联字面量或帧槽值）。
